@@ -16,6 +16,7 @@ import { Card } from '../components/ui/Card';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ConsistencyHeatmap } from '../components/dashboard/ConsistencyHeatmap';
+import { normalizeDate, addDays } from '../services/spacedRepetition';
 import type {
   UpcomingScheduleItem,
   QuickInsights,
@@ -58,6 +59,11 @@ export const HomePage: React.FC = () => {
   const dueTodayCount = dueTodayQuestions.length;
   const masteredCount = useMemo(() => questions.filter((q) => q.status === 'MASTERED').length, [questions]);
 
+  const tomorrowStr = useMemo(() => addDays(new Date(), 1), []);
+  const dueTomorrowCount = useMemo(() => {
+    return questions.filter((q) => !q.isArchived && normalizeDate(q.nextReviewAt) === tomorrowStr).length;
+  }, [questions, tomorrowStr]);
+
   const totalTasks =
     todayMetrics.newQuestionsTarget + todayMetrics.revisionsTarget + todayMetrics.studyTimeTargetMinutes;
   const completedTasks =
@@ -72,8 +78,18 @@ export const HomePage: React.FC = () => {
       id: 'sched-1',
       title: 'Interval Spaced Repetitions',
       category: 'Upcoming Revisions',
-      dateDisplay: dueTodayCount > 0 ? `${dueTodayCount} questions due today` : 'Tomorrow Morning',
-      badgeText: `${dueTodayCount} Cards`,
+      dateDisplay:
+        dueTodayCount > 0
+          ? `${dueTodayCount} question${dueTodayCount === 1 ? '' : 's'} due today`
+          : dueTomorrowCount > 0
+          ? `${dueTomorrowCount} question${dueTomorrowCount === 1 ? '' : 's'} due tomorrow`
+          : 'All caught up',
+      badgeText:
+        dueTodayCount > 0
+          ? `${dueTodayCount} Cards Due`
+          : dueTomorrowCount > 0
+          ? `${dueTomorrowCount} Due Tomorrow`
+          : '0 Cards',
       description: 'Scheduled active recall cards due for SM-2 interval expansion.',
     },
     {

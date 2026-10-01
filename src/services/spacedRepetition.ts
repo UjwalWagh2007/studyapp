@@ -83,8 +83,8 @@ export function scheduleInitialLearning(
   const refDate = referenceDate ? new Date(referenceDate) : new Date();
   const refDateStr = normalizeDate(refDate);
 
-  // Initial interval: 1 day for standard/hard questions, 2 days for easy
-  const initialInterval = question.difficulty === 'Easy' ? 2 : 1;
+  // Initial interval: 1 day for all newly learned questions so they are due for first review tomorrow
+  const initialInterval = 1;
   const nextDate = addDays(refDateStr, initialInterval);
 
   return {

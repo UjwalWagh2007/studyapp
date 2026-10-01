@@ -79,12 +79,12 @@ describe('Spaced Repetition Engine (SM-2 Adaptative)', () => {
       expect(scheduled.mastery).toBeGreaterThanOrEqual(1);
     });
 
-    it('schedules an easy question for review in 2 days', () => {
+    it('schedules an easy question for initial review in 1 day', () => {
       const q = createMockQuestion({ difficulty: 'Easy' });
       const scheduled = scheduleInitialLearning(q, BASE_DATE);
 
-      expect(scheduled.currentIntervalDays).toBe(2);
-      expect(scheduled.nextReviewAt).toBe('2026-10-03');
+      expect(scheduled.currentIntervalDays).toBe(1);
+      expect(scheduled.nextReviewAt).toBe('2026-10-02');
     });
   });
 
