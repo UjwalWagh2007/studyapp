@@ -48,7 +48,7 @@ export function calculateGoalProgress(
       // Sum hours across all logged focus sessions + SRS review time
       let totalSeconds = sessions.reduce((acc, s) => acc + s.durationSeconds, 0);
       questions.forEach((q) => {
-        q.reviewHistory.forEach((r) => {
+        (q.reviewHistory || []).forEach((r) => {
           if (r.timeSpentSeconds) totalSeconds += r.timeSpentSeconds;
         });
       });
@@ -75,7 +75,7 @@ export function calculateGoalProgress(
       // Total reviews recorded across all questions
       let count = 0;
       questions.forEach((q) => {
-        count += q.reviewHistory.length;
+        count += (q.reviewHistory || []).length;
       });
       currentValue = count;
       break;
@@ -124,7 +124,7 @@ export function getTodayMetrics(
   let reviewTimeSeconds = 0;
 
   questions.forEach((q) => {
-    q.reviewHistory.forEach((r) => {
+    (q.reviewHistory || []).forEach((r) => {
       if (r.reviewedAt && r.reviewedAt.split('T')[0] === todayStr) {
         revisionsCompleted += 1;
         if (r.timeSpentSeconds) reviewTimeSeconds += r.timeSpentSeconds;

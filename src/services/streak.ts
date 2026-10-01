@@ -148,7 +148,7 @@ export function getDayActivitySummary(
 
   // Check SRS Reviews
   questions.forEach((q) => {
-    q.reviewHistory.forEach((r) => {
+    (q.reviewHistory || []).forEach((r) => {
       if (r.reviewedAt && r.reviewedAt.startsWith(dateStr)) {
         revisionsCount += 1;
         if (r.timeSpentSeconds) reviewTimeSeconds += r.timeSpentSeconds;

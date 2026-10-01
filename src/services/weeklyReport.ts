@@ -41,7 +41,7 @@ export function generateWeeklyReport(
   const reviewedQuestionIdsThisWeek = new Set<string>();
 
   questions.forEach((q) => {
-    q.reviewHistory.forEach((log) => {
+    (q.reviewHistory || []).forEach((log) => {
       const reviewTime = new Date(log.reviewedAt).getTime();
       if (reviewTime >= windowStartMs) {
         totalReviewLogsThisWeek += 1;
