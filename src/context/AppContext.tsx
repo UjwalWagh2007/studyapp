@@ -212,9 +212,9 @@ interface AppContextValue {
 
   // PART 9: EXTERNAL CODING PLATFORMS & CONTEST TRACKING (SYSTEM B)
   platformAccounts: PlatformAccount[];
-  connectPlatform: (id: PlatformId, handle: string) => Promise<void>;
+  connectPlatform: (id: PlatformId, handle: string) => Promise<PlatformAccount | null>;
   disconnectPlatform: (id: PlatformId) => void;
-  syncPlatform: (id: PlatformId) => Promise<void>;
+  syncPlatform: (id: PlatformId) => Promise<PlatformAccount>;
   syncAllPlatforms: () => Promise<void>;
   enrollPlatformProblemToStudySystem: (
     submission: ExternalSubmission,
@@ -906,7 +906,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // PART 9: Platform Actions
   const connectPlatform = useCallback(async (id: PlatformId, handle: string) => {
     const trimmedHandle = handle.trim();
-    if (!trimmedHandle) return;
+    if (!trimmedHandle) return null;
 
     setPlatformAccounts((prev) =>
       prev.map((acc) =>
@@ -917,7 +917,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     const currentAcc = platformAccounts.find((a) => a.id === id);
-    if (!currentAcc) return;
+    if (!currentAcc) return null;
 
     const updated = await syncPlatformAccount({
       ...currentAcc,
@@ -926,6 +926,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     setPlatformAccounts((prev) => prev.map((acc) => (acc.id === id ? updated : acc)));
+    return updated;
   }, [platformAccounts]);
 
   const disconnectPlatform = useCallback((id: PlatformId) => {
@@ -945,7 +946,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const syncPlatform = useCallback(async (id: PlatformId) => {
     const currentAcc = platformAccounts.find((a) => a.id === id);
-    if (!currentAcc || !currentAcc.handle) return;
+    if (!currentAcc || !currentAcc.handle) {
+      throw new Error('Please configure a username first.');
+    }
 
     setPlatformAccounts((prev) =>
       prev.map((acc) =>
@@ -955,6 +958,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const updated = await syncPlatformAccount(currentAcc);
     setPlatformAccounts((prev) => prev.map((acc) => (acc.id === id ? updated : acc)));
+    return updated;
   }, [platformAccounts]);
 
   const syncAllPlatforms = useCallback(async () => {

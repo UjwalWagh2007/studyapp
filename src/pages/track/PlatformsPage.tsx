@@ -31,6 +31,8 @@ export const PlatformsPage: React.FC = () => {
     platformAccounts,
     syncPlatform,
     syncAllPlatforms,
+    connectPlatform,
+    disconnectPlatform,
     enrollPlatformProblemToStudySystem,
     topics,
     navigateTo,
@@ -41,11 +43,49 @@ export const PlatformsPage: React.FC = () => {
   const [selectedPlatformId, setSelectedPlatformId] = useState<PlatformId | 'all'>('all');
   const [syncingPlatformId, setSyncingPlatformId] = useState<PlatformId | 'all' | null>(null);
 
+  // Modal for Configuring Platform Handles
+  const [connectModalOpen, setConnectModalOpen] = useState(false);
+  const [editingPlatformId, setEditingPlatformId] = useState<PlatformId | null>(null);
+  const [handleInput, setHandleInput] = useState('');
+  const [isSavingPlatform, setIsSavingPlatform] = useState(false);
+
   // Modal for Adding problem to Study System
   const [enrollModalOpen, setEnrollModalOpen] = useState(false);
   const [enrollingSubmission, setEnrollingSubmission] = useState<ExternalSubmission | null>(null);
   const [targetTopicId, setTargetTopicId] = useState<string>('');
   const [customPattern, setCustomPattern] = useState<string>('Other');
+
+  const openConnectModal = (id: PlatformId) => {
+    const acc = platformAccounts.find((a) => a.id === id);
+    setEditingPlatformId(id);
+    setHandleInput(acc?.handle || '');
+    setConnectModalOpen(true);
+  };
+
+  const handleSavePlatform = async () => {
+    if (!editingPlatformId) return;
+    if (!handleInput.trim()) {
+      showToast('Username Required', 'Please enter your username/handle.', 'error');
+      return;
+    }
+
+    setIsSavingPlatform(true);
+    try {
+      await connectPlatform(editingPlatformId, handleInput.trim());
+      showToast('Account Connected', `Successfully connected and synced @${handleInput.trim()}.`, 'success');
+      setConnectModalOpen(false);
+    } catch (err: any) {
+      showToast('Connection Warning', err.message || 'Failed to sync platform account.', 'error');
+    } finally {
+      setIsSavingPlatform(false);
+    }
+  };
+
+  const handleDisconnect = (id: PlatformId) => {
+    disconnectPlatform(id);
+    showToast('Account Disconnected', 'Platform account has been disconnected.', 'info');
+    setConnectModalOpen(false);
+  };
 
   // Aggregated totals across all connected accounts
   const connectedAccounts = platformAccounts.filter((a) => a.isConnected);
@@ -441,7 +481,7 @@ export const PlatformsPage: React.FC = () => {
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => navigateTo('settings')}
+                      onClick={() => openConnectModal(account.id)}
                     >
                       Connect
                     </Button>
@@ -498,7 +538,15 @@ export const PlatformsPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openConnectModal(account.id)}
+                      >
+                        <Settings size={13} style={{ marginRight: 4 }} />
+                        Edit Handle
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -513,9 +561,9 @@ export const PlatformsPage: React.FC = () => {
                   <EmptyState
                     icon={<Globe size={20} />}
                     title="Account not connected"
-                    description="Enter your username in Settings to track your statistics."
-                    actionText="Configure Handle"
-                    onAction={() => navigateTo('settings')}
+                    description="Enter your username to track your solve count and statistics."
+                    actionText="Connect Handle"
+                    onAction={() => openConnectModal(account.id)}
                   />
                 )}
               </Card>
@@ -564,10 +612,10 @@ export const PlatformsPage: React.FC = () => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => navigateTo('settings')}
+                  onClick={() => openConnectModal(activeAccount.id)}
                 >
                   <Settings size={14} style={{ marginRight: 6 }} />
-                  Settings
+                  Edit Handle
                 </Button>
               </div>
             }
@@ -924,6 +972,102 @@ export const PlatformsPage: React.FC = () => {
               <Button variant="primary" onClick={handleConfirmEnroll}>
                 Confirm & Enroll Question
               </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* MODAL 2: CONNECT & CONFIGURE PLATFORM HANDLE */}
+      <Modal
+        isOpen={connectModalOpen}
+        onClose={() => setConnectModalOpen(false)}
+        title={
+          editingPlatformId
+            ? `Connect ${platformAccounts.find((a) => a.id === editingPlatformId)?.name || 'Platform'}`
+            : 'Connect Platform'
+        }
+      >
+        {editingPlatformId && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                background: 'var(--bg-hover)',
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <span style={{ fontSize: '24px' }}>{getPlatformIcon(editingPlatformId)}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--text-main)' }}>
+                  {platformAccounts.find((a) => a.id === editingPlatformId)?.name}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Enter your public username. Passwords/tokens are never needed.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>
+                Platform Username / Profile Handle
+              </label>
+              <Input
+                placeholder={`e.g. your_${editingPlatformId}_handle`}
+                value={handleInput}
+                onChange={(e) => setHandleInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSavePlatform();
+                }}
+                autoFocus
+              />
+              <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                Your handle is used to retrieve public problem solve counts, difficulty statistics, and ratings.
+              </span>
+            </div>
+
+            {platformAccounts.find((a) => a.id === editingPlatformId)?.errorMessage && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  fontSize: '12px',
+                  color: 'var(--danger)',
+                }}
+              >
+                ⚠️ {platformAccounts.find((a) => a.id === editingPlatformId)?.errorMessage}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+              {platformAccounts.find((a) => a.id === editingPlatformId)?.isConnected ? (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => handleDisconnect(editingPlatformId)}
+                >
+                  Disconnect Account
+                </Button>
+              ) : (
+                <div />
+              )}
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Button variant="secondary" onClick={() => setConnectModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleSavePlatform}
+                  disabled={isSavingPlatform || !handleInput.trim()}
+                >
+                  {isSavingPlatform ? 'Syncing Profile...' : 'Save & Sync Now'}
+                </Button>
+              </div>
             </div>
           </div>
         )}
