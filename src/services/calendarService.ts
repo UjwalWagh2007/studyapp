@@ -35,6 +35,9 @@ export function buildUnifiedCalendarEvents(
   const eventsByDate = new Map<string, CalendarEventItem[]>();
   const todayStr = normalizeDate(baseDate);
 
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
   // 1. Generate date range
   const dateRange: Array<{ dateStr: string; displayDay: string; weekday: string; isToday: boolean }> = [];
   for (let i = 0; i < rangeDays; i++) {
@@ -44,8 +47,8 @@ export function buildUnifiedCalendarEvents(
 
     dateRange.push({
       dateStr,
-      displayDay: dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-      weekday: dateObj.toLocaleDateString(undefined, { weekday: 'short' }),
+      displayDay: `${MONTHS[m - 1]} ${d}`,
+      weekday: WEEKDAYS[dateObj.getDay()],
       isToday: i === 0,
     });
   }

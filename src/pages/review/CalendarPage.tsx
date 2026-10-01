@@ -227,26 +227,28 @@ export const CalendarPage: React.FC = () => {
                 }}
                 className="hover-card"
               >
-                {/* Header: Weekday + Date */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                {/* Header: Weekday + Full Month & Day Number */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
                   <span
                     style={{
                       fontSize: '11px',
                       fontWeight: 600,
                       color: day.isToday ? 'var(--primary)' : 'var(--text-muted)',
                       textTransform: 'uppercase',
+                      letterSpacing: '0.02em',
                     }}
                   >
                     {day.isToday ? 'Today' : day.weekday}
                   </span>
                   <span
                     style={{
-                      fontSize: '13px',
+                      fontSize: '12px',
                       fontWeight: 700,
                       color: day.isToday ? 'var(--primary)' : 'var(--text-main)',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    {day.displayDay.split(' ')[1]}
+                    {day.displayDay}
                   </span>
                 </div>
 
