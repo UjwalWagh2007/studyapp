@@ -6,9 +6,14 @@ import App from './App.tsx'
 // Register PWA Service Worker for offline capability
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
-      console.warn('PWA ServiceWorker registration failed:', err);
-    });
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => {
+        reg.update();
+      })
+      .catch((err) => {
+        console.warn('PWA ServiceWorker registration failed:', err);
+      });
   });
 }
 

@@ -1,5 +1,5 @@
 // Personal Study & Coding OS — Offline Service Worker
-const CACHE_NAME = 'studyos-cache-v1';
+const CACHE_NAME = 'studyos-cache-v2';
 
 const STATIC_PRECACHE = [
   '/',
