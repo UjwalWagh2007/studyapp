@@ -1,118 +1,44 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildUnifiedCalendarEvents,
-  ACTIVITY_COLORS,
-} from './calendarService';
-import type { Question, StudySessionRecord, UpcomingContest, StudyGoal } from '../types';
+import { buildCalendarDays } from './calendarService';
+import type { Problem } from '../types';
 
-describe('Part 12: Unified Calendar Service', () => {
-  it('aggregates all six activity types across dates with correct colors and badges', () => {
-    const mockQuestions: Question[] = [
+describe('Calendar Service', () => {
+  it('builds calendar days with scheduled problems correctly', () => {
+    const mockProblems: Problem[] = [
       {
-        id: 'q1',
-        title: 'Two Sum',
-        subject: 'DSA',
+        id: 'p1',
         topicId: 't1',
+        topicName: 'Arrays',
+        title: 'Two Sum',
         difficulty: 'Easy',
         pattern: 'Hash Map',
-        source: 'LeetCode',
-        tags: [],
-        status: 'REVIEWING',
-        mastery: 3,
-        isArchived: false,
-        createdAt: '',
-        updatedAt: '',
-        nextReviewAt: '2026-10-01',
-      } as unknown as Question,
-    ];
-
-    const mockSessions: StudySessionRecord[] = [
-      {
-        id: 's1',
-        topicName: 'Sliding Window',
-        activity: 'Problem Solving',
-        durationSeconds: 3000,
-        startedAt: '2026-10-01T10:00:00.000Z',
-        endedAt: '2026-10-01T10:50:00.000Z',
+        solvedAt: '2026-10-01T10:00:00.000Z',
+        createdAt: '2026-10-01T10:00:00.000Z',
+        updatedAt: '2026-10-01T10:00:00.000Z',
+        status: 'LEARNING',
+        currentIntervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 0,
+        nextReviewAt: '2026-10-02',
+        reviewHistory: [],
       },
     ];
 
-    const mockContests: UpcomingContest[] = [
-      {
-        id: 'c1',
-        platform: 'leetcode',
-        platformName: 'LeetCode',
-        name: 'Weekly Contest 418',
-        startTime: '2026-10-04T02:30:00.000Z',
-        durationSeconds: 5400,
-        url: 'https://leetcode.com',
-      },
-    ];
+    const baseDate = new Date('2026-10-02T00:00:00.000Z');
+    const days = buildCalendarDays(mockProblems, baseDate, 35);
 
-    const mockGoals: StudyGoal[] = [
-      {
-        id: 'g1',
-        title: 'Complete 50 Contests',
-        description: '',
-        horizon: 'MONTHLY',
-        type: 'CONTESTS',
-        targetValue: 50,
-        unit: 'contests',
-        autoTrack: true,
-        deadline: '2026-10-15',
-        isCompleted: false,
-        createdAt: '',
-        updatedAt: '',
-      },
-    ];
+    expect(days.length).toBe(35);
 
-    const baseDate = new Date('2026-10-01T00:00:00.000Z');
-    const { events, eventsByDate, dateRange } = buildUnifiedCalendarEvents(
-      mockQuestions,
-      mockSessions,
-      mockContests,
-      mockGoals,
-      baseDate,
-      21 // 3 weeks
-    );
+    // Today (2026-10-02) should have 1 scheduled problem
+    const today = days.find((d) => d.dateStr === '2026-10-02');
+    expect(today).toBeDefined();
+    expect(today?.isToday).toBe(true);
+    expect(today?.scheduledProblems.length).toBe(1);
+    expect(today?.scheduledProblems[0].title).toBe('Two Sum');
 
-    expect(dateRange.length).toBe(21);
-    expect(events.length).toBeGreaterThan(0);
-
-    // Verify SRS Revision Event
-    const srsEvent = events.find((e) => e.type === 'SRS_REVISION');
-    expect(srsEvent).toBeDefined();
-    expect(srsEvent?.color).toBe(ACTIVITY_COLORS.SRS_REVISION);
-    expect(srsEvent?.dateStr).toBe('2026-10-01');
-
-    // Verify Study Session Event
-    const sessionEvent = events.find((e) => e.type === 'STUDY_SESSION');
-    expect(sessionEvent).toBeDefined();
-    expect(sessionEvent?.color).toBe(ACTIVITY_COLORS.STUDY_SESSION);
-    expect(sessionEvent?.dateStr).toBe('2026-10-01');
-
-    // Verify Saturday Mock & Sunday Special Cadences
-    const mockEvent = events.find((e) => e.type === 'WEEKLY_MOCK');
-    expect(mockEvent).toBeDefined();
-    expect(mockEvent?.color).toBe(ACTIVITY_COLORS.WEEKLY_MOCK);
-
-    const sundayEvent = events.find((e) => e.type === 'SUNDAY_SPECIAL');
-    expect(sundayEvent).toBeDefined();
-    expect(sundayEvent?.color).toBe(ACTIVITY_COLORS.SUNDAY_SPECIAL);
-
-    // Verify Contest Event
-    const contestEvent = events.find((e) => e.type === 'UPCOMING_CONTEST');
-    expect(contestEvent).toBeDefined();
-    expect(contestEvent?.color).toBe(ACTIVITY_COLORS.UPCOMING_CONTEST);
-
-    // Verify Goal Deadline Event
-    const goalEvent = events.find((e) => e.type === 'GOAL_DEADLINE');
-    expect(goalEvent).toBeDefined();
-    expect(goalEvent?.color).toBe(ACTIVITY_COLORS.GOAL_DEADLINE);
-    expect(goalEvent?.dateStr).toBe('2026-10-15');
-
-    // Verify Date Indexing Map
-    expect(eventsByDate.has('2026-10-01')).toBe(true);
-    expect(eventsByDate.get('2026-10-01')?.length).toBeGreaterThanOrEqual(2);
+    // Tomorrow (2026-10-03) should have 0 scheduled problems
+    const tomorrow = days.find((d) => d.dateStr === '2026-10-03');
+    expect(tomorrow).toBeDefined();
+    expect(tomorrow?.scheduledProblems.length).toBe(0);
   });
 });

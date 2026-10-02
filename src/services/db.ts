@@ -1,27 +1,16 @@
 /**
  * PERSONAL STUDY & CODING OS — INDEXEDDB PERSISTENCE ENGINE
- * Long-term, high-quota, resilient local database architecture (4+ years).
+ * Long-term, resilient local database architecture.
  */
 
 const DB_NAME = 'PersonalStudyOS_DB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const STORES = [
   'topics',
-  'questions',
-  'mistakes',
-  'insights',
-  'mockTests',
-  'goals',
-  'dailyTargets',
-  'studySessions',
-  'platformAccounts',
-  'contestRecords',
-  'contestJournal',
-  'notificationPreferences',
+  'problems',
   'settings',
   'syncVault',
-  'syncQueue',
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
@@ -43,13 +32,7 @@ export function getDB(): Promise<IDBDatabase> {
 
       STORES.forEach((storeName) => {
         if (!db.objectStoreNames.contains(storeName)) {
-          // Singleton stores use keyPath null; entity collections use 'id'
-          if (
-            storeName === 'dailyTargets' ||
-            storeName === 'notificationPreferences' ||
-            storeName === 'settings' ||
-            storeName === 'syncVault'
-          ) {
+          if (storeName === 'settings' || storeName === 'syncVault') {
             db.createObjectStore(storeName);
           } else {
             db.createObjectStore(storeName, { keyPath: 'id' });
@@ -104,9 +87,7 @@ export async function dbSetAll<T extends { id: string }>(
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
 
-      // Clear existing records in store to maintain exact collection state
       store.clear();
-
       items.forEach((item) => {
         store.put(item);
       });
@@ -118,7 +99,7 @@ export async function dbSetAll<T extends { id: string }>(
 }
 
 /**
- * Retrieve a singleton object (settings, dailyTargets, etc.).
+ * Retrieve a singleton object (settings, syncVault, etc.).
  */
 export async function dbGetSingleton<T>(storeName: StoreName, key: string = 'root'): Promise<T | null> {
   if (typeof window === 'undefined' || !window.indexedDB) return null;

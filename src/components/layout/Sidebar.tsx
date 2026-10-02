@@ -1,33 +1,22 @@
 import React from 'react';
 import {
-  Home,
-  BookOpen,
+  FolderTree,
   Repeat,
-  CheckSquare,
-  Activity,
-  BarChart3,
-  Target,
-  Settings as SettingsIcon,
-  ChevronDown,
-  ChevronRight,
+  Calendar as CalendarIcon,
   ChevronLeft,
+  ChevronRight,
   Sparkles,
   X,
 } from 'lucide-react';
 import { useAppStore } from '../../context/AppContext';
 import { IconButton } from '../ui/IconButton';
-import type { RoutePath, NavGroupKey } from '../../types';
+import type { RoutePath } from '../../types';
 
-interface SubNavItem {
+interface NavItem {
   id: RoutePath;
   label: string;
-}
-
-interface NavGroupItem {
-  key: NavGroupKey;
-  label: string;
   icon: React.ReactNode;
-  children: SubNavItem[];
+  badgeCount?: number;
 }
 
 export const Sidebar: React.FC = () => {
@@ -38,47 +27,25 @@ export const Sidebar: React.FC = () => {
     toggleSidebar,
     isMobileSidebarOpen,
     closeMobileSidebar,
-    expandedGroups,
-    toggleGroup,
+    dueTodayProblems,
   } = useAppStore();
 
-  const navGroups: NavGroupItem[] = [
+  const navItems: NavItem[] = [
     {
-      key: 'learn',
-      label: 'LEARN',
-      icon: <BookOpen size={16} />,
-      children: [
-        { id: 'learn/topics', label: 'Topics' },
-        { id: 'learn/questions', label: 'Questions' },
-        { id: 'learn/resources', label: 'Resources' },
-      ],
+      id: 'topics',
+      label: 'Topics',
+      icon: <FolderTree size={18} />,
     },
     {
-      key: 'review',
-      label: 'REVIEW',
-      icon: <Repeat size={16} />,
-      children: [
-        { id: 'review/due-today', label: 'Due Today' },
-        { id: 'review/calendar', label: 'Calendar' },
-      ],
+      id: 'revision',
+      label: 'Revision',
+      icon: <Repeat size={18} />,
+      badgeCount: dueTodayProblems.length,
     },
     {
-      key: 'test',
-      label: 'TEST',
-      icon: <CheckSquare size={16} />,
-      children: [
-        { id: 'test/mock-tests', label: 'Mock Tests' },
-        { id: 'test/mistake-bank', label: 'Mistake Bank' },
-      ],
-    },
-    {
-      key: 'track',
-      label: 'TRACK',
-      icon: <Activity size={16} />,
-      children: [
-        { id: 'track/platforms', label: 'Platforms' },
-        { id: 'track/contests', label: 'Contests' },
-      ],
+      id: 'calendar',
+      label: 'Calendar',
+      icon: <CalendarIcon size={18} />,
     },
   ];
 
@@ -143,97 +110,46 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Navigation Item Tree */}
+        {/* Primary Navigation */}
         <nav className="sidebar-nav-list" aria-label="Main Navigation">
-          {/* HOME */}
-          <button
-            className={`sidebar-nav-item ${currentPath === 'home' ? 'active' : ''}`}
-            onClick={() => navigateTo('home')}
-            title={isSidebarCollapsed ? 'HOME' : undefined}
-          >
-            <Home size={16} />
-            {!isSidebarCollapsed && <span>HOME</span>}
-          </button>
-
-          {/* COLLAPSIBLE GROUPS: LEARN, REVIEW, TEST, TRACK */}
-          {navGroups.map((group) => {
-            const isExpanded = expandedGroups[group.key];
-            const isGroupActive = group.children.some((child) => child.id === currentPath);
-
+          {navItems.map((item) => {
+            const isActive = currentPath === item.id;
             return (
-              <div key={group.key} style={{ display: 'flex', flexDirection: 'column' }}>
-                <button
-                  className={`sidebar-group-header ${isGroupActive ? 'group-active' : ''}`}
-                  onClick={() => {
-                    if (isSidebarCollapsed) {
-                      toggleSidebar();
-                    } else {
-                      toggleGroup(group.key);
-                    }
-                  }}
-                  title={isSidebarCollapsed ? group.label : undefined}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {group.icon}
-                    {!isSidebarCollapsed && <span>{group.label}</span>}
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div style={{ color: 'var(--text-muted)' }}>
-                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </div>
-                  )}
-                </button>
+              <button
+                key={item.id}
+                className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
+                onClick={() => navigateTo(item.id)}
+                title={isSidebarCollapsed ? item.label : undefined}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {item.icon}
+                  {!isSidebarCollapsed && <span>{item.label}</span>}
+                </div>
 
-                {/* Sub-items */}
-                {!isSidebarCollapsed && isExpanded && (
-                  <div className="sidebar-group-children">
-                    {group.children.map((subItem) => {
-                      const isSubActive = currentPath === subItem.id;
-                      return (
-                        <button
-                          key={subItem.id}
-                          className={`sidebar-sub-item ${isSubActive ? 'active' : ''}`}
-                          onClick={() => navigateTo(subItem.id)}
-                        >
-                          <span>{subItem.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                {!isSidebarCollapsed && Boolean(item.badgeCount && item.badgeCount > 0) && (
+                  <span
+                    style={{
+                      backgroundColor: 'var(--color-primary)',
+                      color: '#ffffff',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 7px',
+                      borderRadius: 'var(--radius-full)',
+                      lineHeight: 1,
+                    }}
+                  >
+                    {item.badgeCount}
+                  </span>
                 )}
-              </div>
+              </button>
             );
           })}
-
-          {/* INSIGHTS */}
-          <button
-            className={`sidebar-nav-item ${currentPath === 'insights' ? 'active' : ''}`}
-            onClick={() => navigateTo('insights')}
-            title={isSidebarCollapsed ? 'INSIGHTS' : undefined}
-          >
-            <BarChart3 size={16} />
-            {!isSidebarCollapsed && <span>INSIGHTS</span>}
-          </button>
-
-          {/* GOALS */}
-          <button
-            className={`sidebar-nav-item ${currentPath === 'goals' ? 'active' : ''}`}
-            onClick={() => navigateTo('goals')}
-            title={isSidebarCollapsed ? 'GOALS' : undefined}
-          >
-            <Target size={16} />
-            {!isSidebarCollapsed && <span>GOALS</span>}
-          </button>
-
-          {/* SETTINGS */}
-          <button
-            className={`sidebar-nav-item ${currentPath === 'settings' ? 'active' : ''}`}
-            onClick={() => navigateTo('settings')}
-            title={isSidebarCollapsed ? 'SETTINGS' : undefined}
-          >
-            <SettingsIcon size={16} />
-            {!isSidebarCollapsed && <span>SETTINGS</span>}
-          </button>
         </nav>
       </aside>
     </>
