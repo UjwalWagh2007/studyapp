@@ -1,56 +1,26 @@
 // Vercel Serverless Function — Multi-Device Sync Endpoint
 // Persistent Cloud Storage with Conflict-Safe Timestamp Merging
 
-import fs from 'fs';
-import path from 'path';
-
 export const config = {
   runtime: 'nodejs',
 };
 
-// In-memory cache for ultra-fast response
-const memoryVaultStore = new Map<string, { timestamp: string; data: any; cloudId?: string }>();
+const CLOUD_STORAGE_API = 'https://api.restful-api.dev/objects';
 
-// Local filesystem cache directory when running on Node
-const LOCAL_CACHE_DIR = path.join(process.cwd(), '.sync_vaults');
-
-function ensureLocalCacheDir() {
-  try {
-    if (!fs.existsSync(LOCAL_CACHE_DIR)) {
-      fs.mkdirSync(LOCAL_CACHE_DIR, { recursive: true });
-    }
-  } catch {}
-}
-
-function getLocalCachedVault(vaultId: string) {
-  try {
-    const filePath = path.join(LOCAL_CACHE_DIR, `${vaultId.replace(/[^a-zA-Z0-9_-]/g, '')}.json`);
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(raw);
-    }
-  } catch {}
-  return null;
-}
-
-function saveLocalCachedVault(vaultId: string, item: any) {
-  try {
-    ensureLocalCacheDir();
-    const filePath = path.join(LOCAL_CACHE_DIR, `${vaultId.replace(/[^a-zA-Z0-9_-]/g, '')}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(item), 'utf8');
-  } catch {}
-}
-
-// --------------------------------------------------------------------------
-// Cloud Persistence via Upstash / Vercel KV or Resilient Cloud Key-Value API
-// --------------------------------------------------------------------------
 const UPSTASH_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
-const CLOUD_STORAGE_API = 'https://api.restful-api.dev/objects';
+function cleanCloudId(vaultId: string): string {
+  return vaultId.replace(/^ws_/i, '').trim();
+}
 
+// --------------------------------------------------------------------------
+// Cloud Persistence Core
+// --------------------------------------------------------------------------
 async function fetchCloudVault(vaultId: string): Promise<{ timestamp: string; data: any } | null> {
-  // 1. Try Upstash / Vercel KV if environment variables are set
+  const cleanId = cleanCloudId(vaultId);
+
+  // 1. Try Upstash / Vercel KV if configured
   if (UPSTASH_URL && UPSTASH_TOKEN) {
     try {
       const res = await fetch(`${UPSTASH_URL}/get/studyos_${encodeURIComponent(vaultId)}`, {
@@ -68,60 +38,35 @@ async function fetchCloudVault(vaultId: string): Promise<{ timestamp: string; da
     }
   }
 
-  // 2. Try Cloud Storage backend
+  // 2. Try Cloud REST storage
   try {
-    const memoryRecord = memoryVaultStore.get(vaultId);
-    let cloudId = memoryRecord?.cloudId;
-
-    if (!cloudId) {
-      const local = getLocalCachedVault(vaultId);
-      if (local?.cloudId) {
-        cloudId = local.cloudId;
-      }
-    }
-
-    if (cloudId) {
-      const res = await fetch(`${CLOUD_STORAGE_API}/${cloudId}`);
-      if (res.ok) {
-        const item = await res.json();
-        if (item?.data) {
-          return item.data;
-        }
+    const res = await fetch(`${CLOUD_STORAGE_API}/${cleanId}`);
+    if (res.ok) {
+      const item = await res.json();
+      if (item?.data?.payload) {
+        return {
+          timestamp: item.data.timestamp || new Date().toISOString(),
+          data: item.data.payload,
+        };
+      } else if (item?.data) {
+        return {
+          timestamp: item.data.timestamp || new Date().toISOString(),
+          data: item.data.data || item.data,
+        };
       }
     }
   } catch (e) {
     console.warn('[CloudSync] Cloud storage fetch error:', e);
   }
 
-  // 3. Fallback to local filesystem cache
-  const local = getLocalCachedVault(vaultId);
-  if (local?.data) {
-    return { timestamp: local.timestamp, data: local.data };
-  }
-
-  // 4. In-memory fallback
-  const mem = memoryVaultStore.get(vaultId);
-  if (mem?.data) {
-    return { timestamp: mem.timestamp, data: mem.data };
-  }
-
   return null;
 }
 
-async function persistCloudVault(vaultId: string, payload: { timestamp: string; data: any }): Promise<void> {
-  // In-memory cache
-  const existingMem = memoryVaultStore.get(vaultId);
-  let cloudId = existingMem?.cloudId;
-
-  if (!cloudId) {
-    const local = getLocalCachedVault(vaultId);
-    if (local?.cloudId) {
-      cloudId = local.cloudId;
-    }
-  }
-
-  memoryVaultStore.set(vaultId, { ...payload, cloudId });
-  saveLocalCachedVault(vaultId, { ...payload, cloudId });
+async function persistCloudVault(
+  vaultId: string,
+  payload: { timestamp: string; data: any }
+): Promise<string> {
+  const cleanId = cleanCloudId(vaultId);
 
   // 1. Try Upstash / Vercel KV if configured
   if (UPSTASH_URL && UPSTASH_TOKEN) {
@@ -134,47 +79,54 @@ async function persistCloudVault(vaultId: string, payload: { timestamp: string; 
         },
         body: JSON.stringify(payload),
       });
-      return;
     } catch (e) {
       console.warn('[CloudSync] Upstash persist error:', e);
     }
   }
 
-  // 2. Persist to Cloud Storage backend
+  // 2. Persist to Cloud REST storage
   try {
-    if (cloudId) {
-      const putRes = await fetch(`${CLOUD_STORAGE_API}/${cloudId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: `study_vault_${vaultId}`,
-          data: payload,
-        }),
-      });
-      if (putRes.ok) return;
+    // Try updating existing object first
+    const putRes = await fetch(`${CLOUD_STORAGE_API}/${cleanId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `STUDY_VAULT_${vaultId}`,
+        data: {
+          timestamp: payload.timestamp,
+          payload: payload.data,
+        },
+      }),
+    });
+
+    if (putRes.ok) {
+      return vaultId;
     }
 
-    // Create new object
+    // If PUT 404s (new vault), create new object
     const postRes = await fetch(CLOUD_STORAGE_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: `study_vault_${vaultId}`,
-        data: payload,
+        name: `STUDY_VAULT_${vaultId}`,
+        data: {
+          timestamp: payload.timestamp,
+          payload: payload.data,
+        },
       }),
     });
 
     if (postRes.ok) {
       const postJson = await postRes.json();
       if (postJson?.id) {
-        cloudId = postJson.id;
-        memoryVaultStore.set(vaultId, { ...payload, cloudId });
-        saveLocalCachedVault(vaultId, { ...payload, cloudId });
+        return `ws_${postJson.id}`;
       }
     }
   } catch (e) {
     console.warn('[CloudSync] Cloud storage persist error:', e);
   }
+
+  return vaultId;
 }
 
 // --------------------------------------------------------------------------
@@ -262,11 +214,10 @@ export default async function handler(req: any, res: any) {
   const rawVault = req.headers['x-sync-vault'] || req.query.vaultId || req.query.ws;
   const vaultId = typeof rawVault === 'string' ? rawVault.trim() : null;
 
-  if (!vaultId) {
-    return res.status(400).json({ error: 'Missing x-sync-vault identifier' });
-  }
-
   if (req.method === 'GET') {
+    if (!vaultId) {
+      return res.status(400).json({ error: 'Missing x-sync-vault identifier' });
+    }
     try {
       const stored = await fetchCloudVault(vaultId);
       if (!stored) {
@@ -290,22 +241,26 @@ export default async function handler(req: any, res: any) {
     try {
       const envelope = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       const incomingData = envelope?.data;
+      const effectiveVaultId = vaultId || envelope?.vaultId;
 
       if (!incomingData) {
         return res.status(400).json({ error: 'Invalid sync envelope payload' });
       }
 
-      const existingRecord = await fetchCloudVault(vaultId);
-      const mergedData = existingRecord?.data
-        ? serverMergePayloads(existingRecord.data, incomingData)
-        : incomingData;
+      let mergedData = incomingData;
+      if (effectiveVaultId) {
+        const existingRecord = await fetchCloudVault(effectiveVaultId);
+        if (existingRecord?.data) {
+          mergedData = serverMergePayloads(existingRecord.data, incomingData);
+        }
+      }
 
       const timestamp = new Date().toISOString();
-      await persistCloudVault(vaultId, { timestamp, data: mergedData });
+      const activeVaultId = await persistCloudVault(effectiveVaultId || 'new', { timestamp, data: mergedData });
 
       return res.status(200).json({
         success: true,
-        vaultId,
+        vaultId: activeVaultId,
         timestamp,
         data: mergedData,
       });
@@ -316,3 +271,4 @@ export default async function handler(req: any, res: any) {
 
   return res.status(405).json({ error: 'Method not allowed' });
 }
+

@@ -242,6 +242,12 @@ export function applyMergedSyncPayload(merged: SyncPayloadData): void {
   if (merged.mockTests) StorageService.saveMockTests(merged.mockTests);
 }
 
+const CLOUD_STORAGE_API = 'https://api.restful-api.dev/objects';
+
+function cleanCloudId(vaultId: string): string {
+  return vaultId.replace(/^ws_/i, '').trim();
+}
+
 // --------------------------------------------------------------------------
 // Cloud Synchronization Core Function
 // --------------------------------------------------------------------------
@@ -270,6 +276,7 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
     data: localPayload,
   };
 
+  // 1. Try Vercel Serverless Function endpoint first
   try {
     const res = await fetch('/api/sync', {
       method: 'POST',
@@ -281,19 +288,60 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
       body: JSON.stringify(envelope),
     });
 
-    if (!res.ok) {
-      if (res.status === 404 || res.status === 500) {
+    if (res.ok) {
+      const json = await res.json();
+      if (json.data) {
+        const merged = mergeSyncPayloadData(localPayload, json.data);
+        applyMergedSyncPayload(merged);
+
+        if (json.vaultId && json.vaultId !== config.vaultId) {
+          config.vaultId = json.vaultId;
+        }
+        if (overrideVaultId) {
+          config.vaultId = overrideVaultId;
+          config.isSyncEnabled = true;
+        }
         config.lastSuccessfulSyncAt = new Date().toISOString();
         saveDeviceSyncConfig(config);
-        return { success: true, mergedData: localPayload };
-      }
-      throw new Error(`Sync error: ${res.statusText}`);
-    }
 
-    const json = await res.json();
-    if (json.data) {
-      const merged = mergeSyncPayloadData(localPayload, json.data);
+        return { success: true, mergedData: merged };
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[SyncService] /api/sync endpoint notice:', apiErr);
+  }
+
+  // 2. Client-side Direct Cloud Storage Engine (Universal Fallback)
+  try {
+    const cleanId = cleanCloudId(activeVaultId);
+
+    // Try fetching existing cloud vault
+    let remotePayload: SyncPayloadData | null = null;
+    try {
+      const getRes = await fetch(`${CLOUD_STORAGE_API}/${cleanId}`);
+      if (getRes.ok) {
+        const item = await getRes.json();
+        remotePayload = item?.data?.payload || item?.data?.data || item?.data;
+      }
+    } catch {}
+
+    if (remotePayload) {
+      // Merge remote with local changes
+      const merged = mergeSyncPayloadData(localPayload, remotePayload);
       applyMergedSyncPayload(merged);
+
+      // Persist merged data back to the cloud
+      await fetch(`${CLOUD_STORAGE_API}/${cleanId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `STUDY_VAULT_${activeVaultId}`,
+          data: {
+            timestamp: new Date().toISOString(),
+            payload: merged,
+          },
+        }),
+      });
 
       config.lastSuccessfulSyncAt = new Date().toISOString();
       if (overrideVaultId) {
@@ -303,13 +351,41 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
       saveDeviceSyncConfig(config);
 
       return { success: true, mergedData: merged };
-    }
+    } else {
+      // Create new cloud vault
+      const postRes = await fetch(CLOUD_STORAGE_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `STUDY_VAULT_${activeVaultId}`,
+          data: {
+            timestamp: new Date().toISOString(),
+            payload: localPayload,
+          },
+        }),
+      });
 
-    return { success: true };
-  } catch (err: any) {
-    console.warn('[SyncService] Cloud sync notice:', err.message);
-    return { success: false, error: err.message };
+      if (postRes.ok) {
+        const postJson = await postRes.json();
+        if (postJson?.id && !overrideVaultId) {
+          config.vaultId = `ws_${postJson.id}`;
+        }
+        config.lastSuccessfulSyncAt = new Date().toISOString();
+        if (overrideVaultId) {
+          config.vaultId = overrideVaultId;
+          config.isSyncEnabled = true;
+        }
+        saveDeviceSyncConfig(config);
+
+        return { success: true, mergedData: localPayload };
+      }
+    }
+  } catch (cloudErr: any) {
+    console.warn('[SyncService] Direct cloud sync notice:', cloudErr.message);
+    return { success: false, error: cloudErr.message };
   }
+
+  return { success: true, mergedData: localPayload };
 }
 
 export async function fetchRemoteWorkspace(vaultId: string): Promise<{
@@ -319,3 +395,4 @@ export async function fetchRemoteWorkspace(vaultId: string): Promise<{
 }> {
   return syncWithCloud(vaultId);
 }
+
