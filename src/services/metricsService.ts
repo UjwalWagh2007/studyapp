@@ -40,10 +40,10 @@ export function computeTodayMetrics(
     });
   });
 
-  // 3. Study seconds logged today
+  // 3. Study focus seconds logged today (excluding breaks)
   const studySecondsToday = studySessions
     .filter((s) => s.dateStr === todayStr)
-    .reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
+    .reduce((sum, s) => sum + (s.focusSeconds || (s as any).durationSeconds || 0), 0);
 
   const problemsTarget = Math.max(1, targets.problemsTarget || 1);
   const revisionsTarget = Math.max(1, targets.revisionsTarget || 1);
@@ -123,11 +123,12 @@ export function computeConsistencyHeatmap(
     });
   });
 
-  // Pre-index study seconds by date
+  // Pre-index focus study seconds by date
   const studySecondsByDate = new Map<string, number>();
   studySessions.forEach((s) => {
     const d = s.dateStr;
-    studySecondsByDate.set(d, (studySecondsByDate.get(d) || 0) + s.durationSeconds);
+    const sec = s.focusSeconds || (s as any).durationSeconds || 0;
+    studySecondsByDate.set(d, (studySecondsByDate.get(d) || 0) + sec);
   });
 
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

@@ -8,6 +8,7 @@ import { DashboardPage } from '../../pages/DashboardPage';
 import { TopicsPage } from '../../pages/TopicsPage';
 import { RevisionPage } from '../../pages/RevisionPage';
 import { CalendarPage } from '../../pages/CalendarPage';
+import { SessionsPage } from '../../pages/SessionsPage';
 
 export const AppLayout: React.FC = () => {
   const { currentPath } = useAppStore();
@@ -22,6 +23,8 @@ export const AppLayout: React.FC = () => {
         return { title: 'Spaced Repetition Revision', component: <RevisionPage /> };
       case 'calendar':
         return { title: 'Revision Calendar', component: <CalendarPage /> };
+      case 'sessions':
+        return { title: 'Study Sessions', component: <SessionsPage /> };
       default:
         return { title: 'Dashboard', component: <DashboardPage /> };
     }

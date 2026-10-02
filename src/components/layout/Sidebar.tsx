@@ -4,6 +4,7 @@ import {
   FolderTree,
   Repeat,
   Calendar as CalendarIcon,
+  Clock,
   ChevronLeft,
   ChevronRight,
   Sparkles,
@@ -18,6 +19,7 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   badgeCount?: number;
+  isActiveIndicator?: boolean;
 }
 
 export const Sidebar: React.FC = () => {
@@ -29,6 +31,7 @@ export const Sidebar: React.FC = () => {
     isMobileSidebarOpen,
     closeMobileSidebar,
     dueTodayProblems,
+    activeSession,
   } = useAppStore();
 
   const navItems: NavItem[] = [
@@ -52,6 +55,12 @@ export const Sidebar: React.FC = () => {
       id: 'calendar',
       label: 'Calendar',
       icon: <CalendarIcon size={18} />,
+    },
+    {
+      id: 'sessions',
+      label: 'Sessions',
+      icon: <Clock size={18} />,
+      isActiveIndicator: Boolean(activeSession),
     },
   ];
 
@@ -152,6 +161,19 @@ export const Sidebar: React.FC = () => {
                   >
                     {item.badgeCount}
                   </span>
+                )}
+
+                {item.isActiveIndicator && !item.badgeCount && (
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      backgroundColor: activeSession?.status === 'RUNNING' ? 'var(--color-success)' : '#f59e0b',
+                      boxShadow: activeSession?.status === 'RUNNING' ? '0 0 6px #22c55e' : '0 0 6px #f59e0b',
+                    }}
+                    title={activeSession?.status === 'RUNNING' ? 'Session in progress' : 'Session on break'}
+                  />
                 )}
               </button>
             );

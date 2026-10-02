@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type {
   RoutePath,
   ThemeMode,
@@ -21,12 +21,17 @@ import {
   getDueToday,
   getOverdue,
   getUpcoming,
-  normalizeDate,
 } from '../services/spacedRepetition';
 import {
   computeTodayMetrics,
   computeConsistencyHeatmap,
 } from '../services/metricsService';
+import {
+  createNewStudySession,
+  pauseStudySession,
+  resumeStudySession,
+  completeStudySession,
+} from '../services/sessionService';
 import {
   getDeviceSyncConfig,
   saveDeviceSyncConfig,
@@ -72,21 +77,20 @@ interface AppContextValue {
     options?: { timeSpentSeconds?: number; notes?: string }
   ) => void;
 
-  // Daily Targets, Study Time & Consistency Metrics
+  // Daily Targets & Progress Metrics
   dailyTargets: DailyTargetsConfig;
   updateDailyTargets: (targets: Partial<DailyTargetsConfig>) => void;
-  studySessions: StudySession[];
-  logStudySeconds: (seconds: number) => void;
   todayMetrics: TodayProgressMetrics;
   heatmapData: HeatmapDayData[];
 
-  // Built-in Study Timer
-  isTimerRunning: boolean;
-  timerSeconds: number;
-  startTimer: () => void;
-  pauseTimer: () => void;
-  resetTimer: () => void;
-  commitTimerSession: () => void;
+  // Dedicated Study Sessions System
+  studySessions: StudySession[];
+  activeSession: StudySession | null;
+  createAndStartSession: (name: string) => StudySession;
+  pauseSessionById: (id: string) => void;
+  resumeSessionById: (id: string) => void;
+  endSessionById: (id: string) => void;
+  deleteSessionById: (id: string) => void;
 
   // Sync
   syncConfig: DeviceSyncConfig;
@@ -102,7 +106,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentPath, setCurrentPath] = useState<RoutePath>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
       const hash = window.location.hash.replace('#', '') as RoutePath;
-      if (['dashboard', 'topics', 'revision', 'calendar'].includes(hash)) {
+      if (['dashboard', 'topics', 'revision', 'calendar', 'sessions'].includes(hash)) {
         return hash;
       }
     }
@@ -195,63 +199,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
-  // Study session logging
-  const logStudySeconds = useCallback((seconds: number) => {
-    if (seconds <= 0) return;
-    const todayStr = normalizeDate(new Date());
-    const newSession: StudySession = {
-      id: 'sess-' + Math.random().toString(36).substring(2, 9),
-      dateStr: todayStr,
-      durationSeconds: seconds,
-      startedAt: new Date(Date.now() - seconds * 1000).toISOString(),
-      endedAt: new Date().toISOString(),
-    };
+  // 4. Dedicated Study Sessions System
+  const activeSession = useMemo(() => {
+    return studySessions.find((s) => s.status === 'RUNNING' || s.status === 'PAUSED') || null;
+  }, [studySessions]);
 
+  const createAndStartSession = useCallback((name: string): StudySession => {
+    const newSession = createNewStudySession(name);
     setStudySessions((prev) => {
-      const next = [newSession, ...prev];
+      // If there was an existing active session, pause or complete it
+      const next = [newSession, ...prev.map((s) => (s.status === 'RUNNING' ? pauseStudySession(s) : s))];
+      StorageService.saveStudySessions(next);
+      return next;
+    });
+    return newSession;
+  }, []);
+
+  const pauseSessionById = useCallback((id: string) => {
+    setStudySessions((prev) => {
+      const next = prev.map((s) => (s.id === id ? pauseStudySession(s) : s));
       StorageService.saveStudySessions(next);
       return next;
     });
   }, []);
 
-  // 4. Built-in Study Timer State
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [timerSeconds, setTimerSeconds] = useState(0);
-  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (isTimerRunning) {
-      timerIntervalRef.current = setInterval(() => {
-        setTimerSeconds((prev) => prev + 1);
-      }, 1000);
-    } else {
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    }
-    return () => {
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    };
-  }, [isTimerRunning]);
-
-  const startTimer = useCallback(() => {
-    setIsTimerRunning(true);
+  const resumeSessionById = useCallback((id: string) => {
+    setStudySessions((prev) => {
+      const next = prev.map((s) => {
+        if (s.id === id) return resumeStudySession(s);
+        if (s.status === 'RUNNING') return pauseStudySession(s);
+        return s;
+      });
+      StorageService.saveStudySessions(next);
+      return next;
+    });
   }, []);
 
-  const pauseTimer = useCallback(() => {
-    setIsTimerRunning(false);
+  const endSessionById = useCallback((id: string) => {
+    setStudySessions((prev) => {
+      const next = prev.map((s) => (s.id === id ? completeStudySession(s) : s));
+      StorageService.saveStudySessions(next);
+      return next;
+    });
   }, []);
 
-  const resetTimer = useCallback(() => {
-    setIsTimerRunning(false);
-    setTimerSeconds(0);
+  const deleteSessionById = useCallback((id: string) => {
+    setStudySessions((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      StorageService.saveStudySessions(next);
+      return next;
+    });
   }, []);
-
-  const commitTimerSession = useCallback(() => {
-    if (timerSeconds > 0) {
-      logStudySeconds(timerSeconds);
-      setTimerSeconds(0);
-      setIsTimerRunning(false);
-    }
-  }, [timerSeconds, logStudySeconds]);
 
   // Topic CRUD
   const addTopic = useCallback((name: string): Topic => {
@@ -282,7 +280,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return next;
     });
 
-    // Update topicName in problems as well
     setProblems((prev) => {
       const next = prev.map((p) =>
         p.topicId === id ? { ...p, topicName: trimmed, updatedAt: new Date().toISOString() } : p
@@ -299,7 +296,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return next;
     });
 
-    // Also remove problems associated with this deleted topic
     setProblems((prev) => {
       const next = prev.filter((p) => p.topicId !== id);
       StorageService.saveProblems(next);
@@ -334,7 +330,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       reviewHistory: input.reviewHistory ?? [],
     };
 
-    // Automatic spaced repetition scheduling for tomorrow (or user's manual override)
     const scheduledProblem = scheduleInitialLearning(rawProblem, input.solvedAt || new Date());
     if (input.nextReviewAt) {
       scheduledProblem.nextReviewAt = input.nextReviewAt;
@@ -473,15 +468,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       dailyTargets,
       updateDailyTargets,
       studySessions,
-      logStudySeconds,
+      activeSession,
+      createAndStartSession,
+      pauseSessionById,
+      resumeSessionById,
+      endSessionById,
+      deleteSessionById,
       todayMetrics,
       heatmapData,
-      isTimerRunning,
-      timerSeconds,
-      startTimer,
-      pauseTimer,
-      resetTimer,
-      commitTimerSession,
       syncConfig,
       syncStatus,
       triggerCloudSync,
@@ -514,15 +508,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       dailyTargets,
       updateDailyTargets,
       studySessions,
-      logStudySeconds,
+      activeSession,
+      createAndStartSession,
+      pauseSessionById,
+      resumeSessionById,
+      endSessionById,
+      deleteSessionById,
       todayMetrics,
       heatmapData,
-      isTimerRunning,
-      timerSeconds,
-      startTimer,
-      pauseTimer,
-      resetTimer,
-      commitTimerSession,
       syncConfig,
       syncStatus,
       triggerCloudSync,

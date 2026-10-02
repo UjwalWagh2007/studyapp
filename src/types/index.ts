@@ -2,7 +2,7 @@
 // PERSONAL CODING & REVISION SYSTEM TYPES
 // ==========================================================================
 
-export type RoutePath = 'dashboard' | 'topics' | 'revision' | 'calendar';
+export type RoutePath = 'dashboard' | 'topics' | 'revision' | 'calendar' | 'sessions';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -97,7 +97,7 @@ export type CreateQuestionInput = CreateProblemInput;
 export type QuestionStatus = ProblemStatus;
 
 // ==========================================================================
-// DAILY TARGETS, CONSISTENCY & PROGRESS TYPES
+// DAILY TARGETS, CONSISTENCY & STUDY SESSIONS TYPES
 // ==========================================================================
 
 export interface DailyTargetsConfig {
@@ -106,12 +106,20 @@ export interface DailyTargetsConfig {
   studyMinutesTarget: number; // e.g. 120 minutes (2 hours)
 }
 
+export type SessionStatus = 'RUNNING' | 'PAUSED' | 'COMPLETED';
+
 export interface StudySession {
   id: string;
+  name: string;
+  status: SessionStatus;
   dateStr: string; // YYYY-MM-DD
-  durationSeconds: number;
-  startedAt: string;
-  endedAt?: string;
+  startTime: string; // ISO timestamp
+  endTime?: string; // ISO timestamp
+  focusSeconds: number; // Accumulated focus seconds
+  breakSeconds: number; // Accumulated break seconds
+  lastStateChangeAt: string; // ISO timestamp of when current state started
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type HeatmapIntensity = 0 | 1 | 2 | 3 | 4 | 5; // 0=0%, 1=1-25%, 2=26-50%, 3=51-75%, 4=76-99%, 5=100% (Darkest Green)
@@ -122,7 +130,7 @@ export interface HeatmapDayData {
   dayOfWeek: number; // 0=Sun .. 6=Sat
   problemsSolved: number;
   revisionsDone: number;
-  studySeconds: number;
+  studySeconds: number; // focus study seconds only
   progressPercentage: number;
   intensity: HeatmapIntensity;
   isFullyCompleted: boolean;
@@ -140,7 +148,7 @@ export interface TodayProgressMetrics {
   revisionsPercentage: number;
   revisionsCompleted: boolean;
 
-  studySeconds: number;
+  studySeconds: number; // total focus seconds today
   studyMinutesTarget: number;
   studyPercentage: number;
   studyCompleted: boolean;
