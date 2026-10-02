@@ -17,15 +17,10 @@ import { dbSetSingleton } from './db';
 
 const SYNC_CONFIG_KEY = 'studyos_sync_config_v4';
 
+export const DEFAULT_PERSONAL_WORKSPACE_ID = 'ws_ff808181a09d98f701a0fc866f2f6133';
+
 export function generateSyncVaultId(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let p1 = '';
-  let p2 = '';
-  for (let i = 0; i < 4; i++) {
-    p1 += chars.charAt(Math.floor(Math.random() * chars.length));
-    p2 += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return `STUDY-${p1}-${p2}`;
+  return DEFAULT_PERSONAL_WORKSPACE_ID;
 }
 
 export function generateDeviceSecretKey(): string {
@@ -52,7 +47,7 @@ export function getClientDeviceName(): string {
   return `${isMobile ? 'Mobile' : 'Desktop'} (${platform})`;
 }
 
-// URL Workspace ID Auto-detection
+// URL Workspace ID Auto-detection (optional override)
 export function extractUrlWorkspaceId(): string | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -69,10 +64,9 @@ export function extractUrlWorkspaceId(): string | null {
   return null;
 }
 
-export function getPairingUrl(vaultId: string): string {
-  if (typeof window === 'undefined') return `?ws=${vaultId}`;
-  const origin = window.location.origin;
-  return `${origin}/?ws=${encodeURIComponent(vaultId)}`;
+export function getPairingUrl(_vaultId?: string): string {
+  if (typeof window === 'undefined') return '';
+  return window.location.origin;
 }
 
 let memorySyncConfig: DeviceSyncConfig | null = null;
@@ -85,9 +79,12 @@ export function getDeviceSyncConfig(): DeviceSyncConfig {
       const raw = localStorage.getItem(SYNC_CONFIG_KEY);
       if (raw) {
         const parsed: DeviceSyncConfig = JSON.parse(raw);
-        // If user navigated via a pair link with a different workspace ID, switch to it
         if (urlWorkspace && urlWorkspace !== parsed.vaultId) {
           parsed.vaultId = urlWorkspace;
+          parsed.isSyncEnabled = true;
+          saveDeviceSyncConfig(parsed);
+        } else if (!parsed.vaultId || !parsed.vaultId.startsWith('ws_')) {
+          parsed.vaultId = DEFAULT_PERSONAL_WORKSPACE_ID;
           parsed.isSyncEnabled = true;
           saveDeviceSyncConfig(parsed);
         }
@@ -101,10 +98,10 @@ export function getDeviceSyncConfig(): DeviceSyncConfig {
   }
 
   const initialConfig: DeviceSyncConfig = {
-    vaultId: urlWorkspace || generateSyncVaultId(),
+    vaultId: urlWorkspace || DEFAULT_PERSONAL_WORKSPACE_ID,
     secretKey: generateDeviceSecretKey(),
     deviceName: getClientDeviceName(),
-    isSyncEnabled: true, // Enabled by default for seamless personal workspace experience
+    isSyncEnabled: true,
     autoSyncIntervalSeconds: 20,
   };
 
@@ -131,6 +128,7 @@ export function saveDeviceSyncConfig(config: DeviceSyncConfig): void {
     console.error('Failed to save sync config', err);
   }
 }
+
 
 // --------------------------------------------------------------------------
 // Conflict-Safe Merge Helpers
