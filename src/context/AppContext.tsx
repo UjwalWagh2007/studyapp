@@ -262,7 +262,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setTopics((prev) => {
-      const next = [newTopic, ...prev];
+      const next = [...prev, newTopic];
       StorageService.saveTopics(next);
       return next;
     });

@@ -62,14 +62,14 @@ export const TopicsPage: React.FC = () => {
   });
   const [problemNextReviewDate, setProblemNextReviewDate] = useState(() => addDays(new Date(), 1));
 
-  // Always sort topics newest first by creation timestamp
+  // Sort topics chronologically (newly added topics appear at the bottom)
   const sortedTopics = useMemo(() => {
     return [...topics].sort(
-      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
     );
   }, [topics]);
 
-  // Effective selected topic (defaults to the newest/first topic if available, or currently selected)
+  // Effective selected topic (defaults to the first topic if available, or currently selected)
   const currentTopic = sortedTopics.find((t) => t.id === selectedTopicId) || (sortedTopics.length > 0 ? sortedTopics[0] : null);
   const currentTopicProblems = currentTopic ? problems.filter((p) => p.topicId === currentTopic.id) : [];
 

@@ -66,7 +66,7 @@ export const StorageService = {
       if (!raw) return DEFAULT_TOPICS;
       const parsed: Topic[] = JSON.parse(raw);
       return parsed.sort(
-        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
       );
     } catch {
       return DEFAULT_TOPICS;
@@ -202,7 +202,7 @@ export const StorageService = {
 
       const rawTopics = idbTopics.length > 0 ? idbTopics : this.getTopics();
       const topics = [...rawTopics].sort(
-        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
       );
       const problems = idbProblems.length > 0 ? idbProblems : this.getProblems();
       const studySessions = idbSessions.length > 0 ? idbSessions : this.getStudySessions();
