@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   FolderTree,
   Plus,
@@ -62,8 +62,15 @@ export const TopicsPage: React.FC = () => {
   });
   const [problemNextReviewDate, setProblemNextReviewDate] = useState(() => addDays(new Date(), 1));
 
-  // Effective selected topic (defaults to the first topic if available, or currently selected)
-  const currentTopic = topics.find((t) => t.id === selectedTopicId) || (topics.length > 0 ? topics[0] : null);
+  // Always sort topics newest first by creation timestamp
+  const sortedTopics = useMemo(() => {
+    return [...topics].sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+  }, [topics]);
+
+  // Effective selected topic (defaults to the newest/first topic if available, or currently selected)
+  const currentTopic = sortedTopics.find((t) => t.id === selectedTopicId) || (sortedTopics.length > 0 ? sortedTopics[0] : null);
   const currentTopicProblems = currentTopic ? problems.filter((p) => p.topicId === currentTopic.id) : [];
 
   // ------------------------------------------------------------------------
@@ -265,7 +272,7 @@ export const TopicsPage: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' }}>
-              {topics.map((t) => {
+              {sortedTopics.map((t) => {
                 const count = problems.filter((p) => p.topicId === t.id).length;
                 const isSelected = currentTopic?.id === t.id;
 

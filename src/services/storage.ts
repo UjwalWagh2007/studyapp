@@ -64,7 +64,10 @@ export const StorageService = {
       if (typeof localStorage === 'undefined') return DEFAULT_TOPICS;
       const raw = localStorage.getItem(TOPICS_KEY);
       if (!raw) return DEFAULT_TOPICS;
-      return JSON.parse(raw);
+      const parsed: Topic[] = JSON.parse(raw);
+      return parsed.sort(
+        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      );
     } catch {
       return DEFAULT_TOPICS;
     }
@@ -197,7 +200,10 @@ export const StorageService = {
         dbGetSingleton<UserSettings>('settings'),
       ]);
 
-      const topics = idbTopics.length > 0 ? idbTopics : this.getTopics();
+      const rawTopics = idbTopics.length > 0 ? idbTopics : this.getTopics();
+      const topics = [...rawTopics].sort(
+        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      );
       const problems = idbProblems.length > 0 ? idbProblems : this.getProblems();
       const studySessions = idbSessions.length > 0 ? idbSessions : this.getStudySessions();
       const dailyTargets = idbTargets || this.getDailyTargets();
