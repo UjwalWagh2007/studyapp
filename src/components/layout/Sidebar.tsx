@@ -122,7 +122,7 @@ export const Sidebar: React.FC = () => {
                 onClick={toggleSidebar}
               />
             </div>
-            <div className="mobile-only" style={{ display: 'none' }}>
+            <div className="mobile-only">
               <IconButton
                 icon={<X size={16} />}
                 label="Close sidebar"
@@ -141,7 +141,10 @@ export const Sidebar: React.FC = () => {
               <button
                 key={item.id}
                 className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => navigateTo(item.id)}
+                onClick={() => {
+                  navigateTo(item.id);
+                  closeMobileSidebar();
+                }}
                 title={isSidebarCollapsed ? item.label : undefined}
                 style={{
                   display: 'flex',

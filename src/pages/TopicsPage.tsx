@@ -238,18 +238,9 @@ export const TopicsPage: React.FC = () => {
           onAction={handleOpenAddTopic}
         />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 20, alignItems: 'start' }}>
+        <div className="topics-layout-grid">
           {/* Left Column: Topics List Sidebar */}
-          <div
-            style={{
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-lg)',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
+          <div className="topics-sidebar-panel">
             <div
               style={{
                 padding: '14px 16px',
@@ -271,7 +262,7 @@ export const TopicsPage: React.FC = () => {
               />
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' }}>
+            <div className="topics-list-scroll">
               {sortedTopics.map((t) => {
                 const count = problems.filter((p) => p.topicId === t.id).length;
                 const isSelected = currentTopic?.id === t.id;
@@ -619,7 +610,7 @@ export const TopicsPage: React.FC = () => {
             onChange={(e) => setProblemLink(e.target.value)}
           />
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="form-grid-2col">
             <div className="form-group">
               <label className="form-label">
                 <span>Difficulty</span>
@@ -643,7 +634,7 @@ export const TopicsPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="form-grid-2col">
             <Input
               type="date"
               label="Date Solved"
@@ -708,7 +699,7 @@ export const TopicsPage: React.FC = () => {
             onChange={(e) => setProblemLink(e.target.value)}
           />
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="form-grid-2col">
             <div className="form-group">
               <label className="form-label">
                 <span>Difficulty</span>
@@ -732,7 +723,7 @@ export const TopicsPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="form-grid-2col">
             <Input
               type="date"
               label="Date Solved"

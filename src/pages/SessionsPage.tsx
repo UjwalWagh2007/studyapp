@@ -283,10 +283,8 @@ export const SessionsPage: React.FC = () => {
 
             {/* Bottom 3 Sub-Stats */}
             <div
+              className="session-substats-grid"
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: 12,
                 marginTop: 20,
                 paddingTop: 16,
                 borderTop: '1px solid var(--border-subtle)',

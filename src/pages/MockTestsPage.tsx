@@ -256,7 +256,7 @@ export const MockTestsPage: React.FC = () => {
             Questions Progress ({completedCount}/{totalQuestions}):
           </div>
 
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div className="mock-question-nav-container">
             {currentTest.questions.map((q, idx) => {
               const isActive = idx === activeQIndex;
               const isDone = q.isCompleted;
@@ -430,7 +430,7 @@ export const MockTestsPage: React.FC = () => {
                 How did you perform on this problem under test conditions?
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+              <div className="mock-assessment-grid">
                 {/* 1. Solved Independently */}
                 <button
                   onClick={() => handleCompleteQuestion(activeQIndex, 'SOLVED_INDEPENDENTLY')}
@@ -554,7 +554,7 @@ export const MockTestsPage: React.FC = () => {
             </div>
 
             {/* Bottom Nav Buttons */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, paddingTop: 10 }}>
               <Button
                 variant="secondary"
                 size="md"
@@ -954,7 +954,7 @@ export const MockTestsPage: React.FC = () => {
             onAction={() => navigateTo('topics')}
           />
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
+          <div className="mock-tests-grid">
             {/* SATURDAY TEST CARD */}
             {saturdayTest && (
               <div

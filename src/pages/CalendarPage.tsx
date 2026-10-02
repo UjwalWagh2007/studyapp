@@ -61,7 +61,7 @@ export const CalendarPage: React.FC = () => {
           onAction={() => navigateTo('topics')}
         />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20, alignItems: 'start' }}>
+        <div className="calendar-layout-grid">
           {/* Main 5-Week Calendar Grid */}
           <div
             style={{
@@ -82,10 +82,11 @@ export const CalendarPage: React.FC = () => {
 
             {/* Weekday Labels Header */}
             <div
+              className="calendar-weekday-header"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(7, 1fr)',
-                gap: 8,
+                gap: 4,
                 textAlign: 'center',
                 fontWeight: 600,
                 fontSize: '12px',
@@ -95,18 +96,15 @@ export const CalendarPage: React.FC = () => {
               }}
             >
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                <div key={day}>{day}</div>
+                <div key={day}>
+                  <span className="badge-text-full">{day}</span>
+                  <span className="badge-text-short">{day[0]}</span>
+                </div>
               ))}
             </div>
 
             {/* Calendar Days Matrix */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(7, 1fr)',
-                gap: 8,
-              }}
-            >
+            <div className="calendar-matrix-grid">
               {calendarDays.map((day) => {
                 const isSelected = selectedDateStr === day.dateStr;
                 const count = day.scheduledProblems.length;
@@ -115,10 +113,8 @@ export const CalendarPage: React.FC = () => {
                   <div
                     key={day.dateStr}
                     onClick={() => setSelectedDateStr(day.dateStr)}
+                    className="calendar-cell"
                     style={{
-                      minHeight: 80,
-                      padding: 8,
-                      borderRadius: 'var(--radius-md)',
                       border: isSelected
                         ? '2px solid var(--color-primary)'
                         : day.isToday
@@ -129,11 +125,6 @@ export const CalendarPage: React.FC = () => {
                         : day.isToday
                         ? 'rgba(99, 102, 241, 0.05)'
                         : 'var(--bg-card)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      transition: 'all 0.15s ease',
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -155,7 +146,8 @@ export const CalendarPage: React.FC = () => {
                             textTransform: 'uppercase',
                           }}
                         >
-                          Today
+                          <span className="badge-text-full">Today</span>
+                          <span className="badge-text-short">•</span>
                         </span>
                       )}
                     </div>
@@ -169,14 +161,17 @@ export const CalendarPage: React.FC = () => {
                             fontSize: '11px',
                             fontWeight: 700,
                             borderRadius: 'var(--radius-sm)',
-                            padding: '2px 6px',
+                            padding: '2px 5px',
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: 4,
+                            gap: 3,
+                            maxWidth: '100%',
+                            overflow: 'hidden',
                           }}
                         >
-                          <Clock size={11} />
-                          <span>{count} Due</span>
+                          <Clock size={10} style={{ flexShrink: 0 }} />
+                          <span className="badge-text-full">{count} Due</span>
+                          <span className="badge-text-short">{count}</span>
                         </div>
                       ) : (
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>-</span>

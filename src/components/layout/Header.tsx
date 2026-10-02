@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
     <header className="app-header">
       {/* Left side: Mobile menu toggle + Current Page Title */}
       <div className="header-left">
-        <div className="mobile-only" style={{ display: 'none' }}>
+        <div className="mobile-only">
           <IconButton
             icon={<Menu size={20} />}
             label="Open navigation menu"
@@ -37,17 +37,19 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
       </div>
 
       {/* Right side: Revisions due counter & Theme toggle */}
-      <div className="header-right-actions" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="header-right-actions">
         {dueTodayProblems.length > 0 ? (
           <Badge variant="primary" size="md">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <Clock size={13} />
-              {dueTodayProblems.length} Revision{dueTodayProblems.length === 1 ? '' : 's'} Due Today
+              <span className="badge-text-full">{dueTodayProblems.length} Revision{dueTodayProblems.length === 1 ? '' : 's'} Due Today</span>
+              <span className="badge-text-short">{dueTodayProblems.length} Due</span>
             </span>
           </Badge>
         ) : (
           <Badge variant="success" size="md">
-            All Caught Up
+            <span className="badge-text-full">All Caught Up</span>
+            <span className="badge-text-short">Caught Up</span>
           </Badge>
         )}
 

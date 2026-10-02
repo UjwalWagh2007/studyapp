@@ -198,13 +198,7 @@ export const RevisionPage: React.FC = () => {
                       HOW WELL DID YOU RECALL THIS PROBLEM?
                     </span>
 
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                        gap: 10,
-                      }}
-                    >
+                    <div className="revision-rating-grid">
                       <button
                         className="btn"
                         style={{

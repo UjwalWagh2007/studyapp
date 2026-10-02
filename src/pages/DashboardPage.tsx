@@ -218,6 +218,8 @@ export const DashboardPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 14,
             boxShadow: '0 0 25px rgba(34, 197, 94, 0.2)',
           }}
         >
@@ -256,15 +258,7 @@ export const DashboardPage: React.FC = () => {
       {/* ─────────────────────────────────────────────────────────── */}
       {/* TODAY'S PROGRESS CARDS (Always rendered) */}
       {/* ─────────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: hasRevisionItems
-            ? 'repeat(auto-fit, minmax(280px, 1fr))'
-            : 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: 20,
-        }}
-      >
+      <div className="dashboard-targets-grid">
         {/* 1. DAILY PROBLEM TARGET */}
         <div
           style={{
@@ -584,18 +578,7 @@ export const DashboardPage: React.FC = () => {
       {/* ─────────────────────────────────────────────────────────── */}
       {/* 1. CONSISTENCY HEATMAP — ALWAYS VISIBLE ON DASHBOARD */}
       {/* ─────────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 'var(--radius-lg)',
-          padding: 24,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-          boxShadow: 'var(--shadow-sm)',
-        }}
-      >
+      <div className="heatmap-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div>
             <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
@@ -607,7 +590,7 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           {/* Intensity Legend */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '11.5px', color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '11.5px', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
             <span>Less</span>
             {[0, 1, 2, 3, 4, 5].map((lvl) => (
               <div
@@ -627,7 +610,7 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Heatmap Grid View */}
-        <div style={{ overflowX: 'auto', paddingBottom: 6 }}>
+        <div className="heatmap-scroll-area">
           {/* Month Header row */}
           <div
             style={{

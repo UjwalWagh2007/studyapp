@@ -60,7 +60,7 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
         </div>
       }
       footer={
-        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           {allowArchiveAlternative && onArchiveInstead ? (
             <Button
               variant="outline"
