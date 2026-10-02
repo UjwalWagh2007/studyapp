@@ -57,7 +57,7 @@ export interface Problem {
   title: string;
   link?: string;
   difficulty: Difficulty;
-  pattern: string;
+  pattern?: string;
   solvedAt: string; // ISO date-time string
   createdAt: string;
   updatedAt: string;
@@ -81,7 +81,7 @@ export type CreateProblemInput = {
   title: string;
   link?: string;
   difficulty: Difficulty;
-  pattern: string;
+  pattern?: string;
   solvedAt: string; // ISO date-time string
   status?: ProblemStatus;
   currentIntervalDays?: number;

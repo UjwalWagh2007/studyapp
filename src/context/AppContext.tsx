@@ -227,7 +227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       title: input.title.trim(),
       link: input.link?.trim() || undefined,
       difficulty: input.difficulty,
-      pattern: input.pattern.trim(),
+      pattern: input.pattern?.trim() || undefined,
       solvedAt: input.solvedAt || nowIso,
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -238,8 +238,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       reviewHistory: input.reviewHistory ?? [],
     };
 
-    // Automatic spaced repetition scheduling for tomorrow
+    // Automatic spaced repetition scheduling for tomorrow (or user's manual date)
     const scheduledProblem = scheduleInitialLearning(rawProblem, input.solvedAt || new Date());
+    if (input.nextReviewAt) {
+      scheduledProblem.nextReviewAt = input.nextReviewAt;
+    }
 
     setProblems((prev) => {
       const next = [scheduledProblem, ...prev];

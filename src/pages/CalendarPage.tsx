@@ -253,9 +253,11 @@ export const CalendarPage: React.FC = () => {
                       <Badge variant={getDifficultyVariant(p.difficulty)} size="sm">
                         {p.difficulty}
                       </Badge>
-                      <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                        {p.pattern}
-                      </span>
+                      {p.pattern && (
+                        <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                          {p.pattern}
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}

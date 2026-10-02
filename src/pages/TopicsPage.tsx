@@ -20,6 +20,7 @@ import { ConfirmationDialog } from '../components/ui/ConfirmationDialog';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useAppStore } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
+import { addDays, normalizeDate } from '../services/spacedRepetition';
 import type { Topic, Problem, Difficulty } from '../types';
 
 export const TopicsPage: React.FC = () => {
@@ -54,14 +55,12 @@ export const TopicsPage: React.FC = () => {
   const [problemLink, setProblemLink] = useState('');
   const [problemDifficulty, setProblemDifficulty] = useState<Difficulty>('Medium');
   const [problemPattern, setProblemPattern] = useState('');
-  const [problemSolvedDate, setProblemSolvedDate] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  });
+  const [problemSolvedDate, setProblemSolvedDate] = useState(() => normalizeDate(new Date()));
   const [problemSolvedTime, setProblemSolvedTime] = useState(() => {
     const d = new Date();
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   });
+  const [problemNextReviewDate, setProblemNextReviewDate] = useState(() => addDays(new Date(), 1));
 
   // Effective selected topic (defaults to the first topic if available, or currently selected)
   const currentTopic = topics.find((t) => t.id === selectedTopicId) || (topics.length > 0 ? topics[0] : null);
@@ -113,22 +112,22 @@ export const TopicsPage: React.FC = () => {
   const handleOpenAddProblem = () => {
     if (!currentTopic) return;
     const now = new Date();
+    const todayStr = normalizeDate(now);
     setProblemTitle('');
     setProblemLink('');
     setProblemDifficulty('Medium');
     setProblemPattern('');
-    setProblemSolvedDate(
-      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    );
+    setProblemSolvedDate(todayStr);
     setProblemSolvedTime(
       `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
     );
+    setProblemNextReviewDate(addDays(todayStr, 1));
     setIsAddProblemModalOpen(true);
   };
 
   const handleSaveAddProblem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentTopic || !problemTitle.trim() || !problemPattern.trim()) return;
+    if (!currentTopic || !problemTitle.trim()) return;
 
     const combinedIso = new Date(`${problemSolvedDate}T${problemSolvedTime}:00`).toISOString();
 
@@ -138,11 +137,12 @@ export const TopicsPage: React.FC = () => {
       title: problemTitle.trim(),
       link: problemLink.trim() || undefined,
       difficulty: problemDifficulty,
-      pattern: problemPattern.trim(),
+      pattern: problemPattern.trim() || undefined,
       solvedAt: combinedIso,
+      nextReviewAt: problemNextReviewDate || addDays(problemSolvedDate, 1),
     });
 
-    showToast('Problem Added', `"${problemTitle.trim()}" added and revision scheduled.`, 'success');
+    showToast('Problem Added', `"${problemTitle.trim()}" logged and revision scheduled.`, 'success');
     setIsAddProblemModalOpen(false);
   };
 
@@ -151,20 +151,22 @@ export const TopicsPage: React.FC = () => {
     setProblemTitle(problem.title);
     setProblemLink(problem.link || '');
     setProblemDifficulty(problem.difficulty);
-    setProblemPattern(problem.pattern);
+    setProblemPattern(problem.pattern || '');
 
     const d = new Date(problem.solvedAt);
-    setProblemSolvedDate(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    );
+    const validDate = !isNaN(d.getTime());
+    setProblemSolvedDate(validDate ? normalizeDate(d) : normalizeDate(new Date()));
     setProblemSolvedTime(
-      `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+      validDate
+        ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+        : '12:00'
     );
+    setProblemNextReviewDate(problem.nextReviewAt || addDays(new Date(), 1));
   };
 
   const handleSaveEditProblem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingProblem || !problemTitle.trim() || !problemPattern.trim()) return;
+    if (!editingProblem || !problemTitle.trim()) return;
 
     const combinedIso = new Date(`${problemSolvedDate}T${problemSolvedTime}:00`).toISOString();
 
@@ -172,8 +174,9 @@ export const TopicsPage: React.FC = () => {
       title: problemTitle.trim(),
       link: problemLink.trim() || undefined,
       difficulty: problemDifficulty,
-      pattern: problemPattern.trim(),
+      pattern: problemPattern.trim() || undefined,
       solvedAt: combinedIso,
+      nextReviewAt: problemNextReviewDate || editingProblem.nextReviewAt,
     });
 
     showToast('Problem Updated', `Changes to "${problemTitle.trim()}" saved.`, 'success');
@@ -440,19 +443,23 @@ export const TopicsPage: React.FC = () => {
                               </td>
 
                               <td>
-                                <span
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 5,
-                                    fontSize: '12px',
-                                    fontWeight: 500,
-                                    color: 'var(--text-secondary)',
-                                  }}
-                                >
-                                  <Layers size={13} color="var(--color-primary)" />
-                                  {problem.pattern}
-                                </span>
+                                {problem.pattern ? (
+                                  <span
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 5,
+                                      fontSize: '12px',
+                                      fontWeight: 500,
+                                      color: 'var(--text-secondary)',
+                                    }}
+                                  >
+                                    <Layers size={13} color="var(--color-primary)" />
+                                    {problem.pattern}
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
+                                )}
                               </td>
 
                               <td>
@@ -622,11 +629,10 @@ export const TopicsPage: React.FC = () => {
             </div>
 
             <Input
-              label="Pattern"
-              placeholder="e.g. Sliding Window, Hash Map"
+              label="Pattern (Optional)"
+              placeholder="e.g. Sliding Window, Two Pointers"
               value={problemPattern}
               onChange={(e) => setProblemPattern(e.target.value)}
-              required
             />
           </div>
 
@@ -635,7 +641,13 @@ export const TopicsPage: React.FC = () => {
               type="date"
               label="Date Solved"
               value={problemSolvedDate}
-              onChange={(e) => setProblemSolvedDate(e.target.value)}
+              onChange={(e) => {
+                const newSolvedDate = e.target.value;
+                setProblemSolvedDate(newSolvedDate);
+                if (newSolvedDate) {
+                  setProblemNextReviewDate(addDays(newSolvedDate, 1));
+                }
+              }}
               required
             />
 
@@ -647,6 +659,14 @@ export const TopicsPage: React.FC = () => {
               required
             />
           </div>
+
+          <Input
+            type="date"
+            label="Scheduled First Revision Date (Editable)"
+            value={problemNextReviewDate}
+            onChange={(e) => setProblemNextReviewDate(e.target.value)}
+            required
+          />
         </form>
       </Modal>
 
@@ -698,10 +718,10 @@ export const TopicsPage: React.FC = () => {
             </div>
 
             <Input
-              label="Pattern"
+              label="Pattern (Optional)"
+              placeholder="e.g. Sliding Window, Two Pointers"
               value={problemPattern}
               onChange={(e) => setProblemPattern(e.target.value)}
-              required
             />
           </div>
 
@@ -722,6 +742,14 @@ export const TopicsPage: React.FC = () => {
               required
             />
           </div>
+
+          <Input
+            type="date"
+            label="Scheduled Revision Date (Editable)"
+            value={problemNextReviewDate}
+            onChange={(e) => setProblemNextReviewDate(e.target.value)}
+            required
+          />
         </form>
       </Modal>
 

@@ -145,18 +145,20 @@ export const RevisionPage: React.FC = () => {
                         <Badge variant={getDifficultyVariant(problem.difficulty)}>
                           {problem.difficulty}
                         </Badge>
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            fontSize: '12px',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          <Layers size={13} color="var(--color-primary)" />
-                          {problem.pattern}
-                        </span>
+                        {problem.pattern && (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontSize: '12px',
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            <Layers size={13} color="var(--color-primary)" />
+                            {problem.pattern}
+                          </span>
+                        )}
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                           • Solved {formattedSolvedDate}
                         </span>
