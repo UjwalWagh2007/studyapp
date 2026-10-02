@@ -2,15 +2,21 @@ import type {
   Topic,
   Problem,
   UserSettings,
+  DailyTargetsConfig,
+  StudySession,
 } from '../types';
 import { dbGetAll, dbSetAll, dbGetSingleton, dbSetSingleton } from './db';
+import { DEFAULT_DAILY_TARGETS } from './metricsService';
 
 const TOPICS_KEY = 'studyos_topics_v3';
 const PROBLEMS_KEY = 'studyos_problems_v3';
 const SETTINGS_KEY = 'studyos_settings_v3';
+const TARGETS_KEY = 'studyos_targets_v3';
+const SESSIONS_KEY = 'studyos_sessions_v3';
 
 export const DEFAULT_TOPICS: Topic[] = [];
 export const DEFAULT_PROBLEMS: Problem[] = [];
+export const DEFAULT_SESSIONS: StudySession[] = [];
 
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: 'dark',
@@ -105,13 +111,48 @@ export const StorageService = {
     }
   },
 
-  // Aliases for questions during transition
-  getQuestions(): Problem[] {
-    return this.getProblems();
+  getDailyTargets(): DailyTargetsConfig {
+    try {
+      if (typeof localStorage === 'undefined') return DEFAULT_DAILY_TARGETS;
+      const raw = localStorage.getItem(TARGETS_KEY);
+      if (!raw) return DEFAULT_DAILY_TARGETS;
+      return { ...DEFAULT_DAILY_TARGETS, ...JSON.parse(raw) };
+    } catch {
+      return DEFAULT_DAILY_TARGETS;
+    }
   },
 
-  saveQuestions(problems: Problem[]): void {
-    this.saveProblems(problems);
+  saveDailyTargets(targets: DailyTargetsConfig): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(TARGETS_KEY, JSON.stringify(targets));
+      }
+      dbSetSingleton('dailyTargets', targets, 'config').catch(() => {});
+    } catch (err) {
+      console.error('Failed to save daily targets', err);
+    }
+  },
+
+  getStudySessions(): StudySession[] {
+    try {
+      if (typeof localStorage === 'undefined') return DEFAULT_SESSIONS;
+      const raw = localStorage.getItem(SESSIONS_KEY);
+      if (!raw) return DEFAULT_SESSIONS;
+      return JSON.parse(raw);
+    } catch {
+      return DEFAULT_SESSIONS;
+    }
+  },
+
+  saveStudySessions(sessions: StudySession[]): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+      }
+      dbSetAll('studySessions', sessions).catch(() => {});
+    } catch (err) {
+      console.error('Failed to save study sessions', err);
+    }
   },
 
   getSettings(): UserSettings {
@@ -142,30 +183,40 @@ export const StorageService = {
   async hydrateFromIndexedDB(): Promise<{
     topics: Topic[];
     problems: Problem[];
+    studySessions: StudySession[];
+    dailyTargets: DailyTargetsConfig;
     settings: UserSettings;
   }> {
     ensureStorageCleanMigration();
     try {
-      const [idbTopics, idbProblems, idbSettings] = await Promise.all([
+      const [idbTopics, idbProblems, idbSessions, idbTargets, idbSettings] = await Promise.all([
         dbGetAll<Topic>('topics'),
         dbGetAll<Problem>('problems'),
+        dbGetAll<StudySession>('studySessions'),
+        dbGetSingleton<DailyTargetsConfig>('dailyTargets', 'config'),
         dbGetSingleton<UserSettings>('settings'),
       ]);
 
       const topics = idbTopics.length > 0 ? idbTopics : this.getTopics();
       const problems = idbProblems.length > 0 ? idbProblems : this.getProblems();
+      const studySessions = idbSessions.length > 0 ? idbSessions : this.getStudySessions();
+      const dailyTargets = idbTargets || this.getDailyTargets();
       const settings = idbSettings || this.getSettings();
 
       // Mirror into localStorage
       this.saveTopics(topics);
       this.saveProblems(problems);
+      this.saveStudySessions(studySessions);
+      this.saveDailyTargets(dailyTargets);
       this.saveSettings(settings);
 
-      return { topics, problems, settings };
+      return { topics, problems, studySessions, dailyTargets, settings };
     } catch {
       return {
         topics: this.getTopics(),
         problems: this.getProblems(),
+        studySessions: this.getStudySessions(),
+        dailyTargets: this.getDailyTargets(),
         settings: this.getSettings(),
       };
     }
@@ -176,8 +227,11 @@ export const StorageService = {
       localStorage.removeItem(TOPICS_KEY);
       localStorage.removeItem(PROBLEMS_KEY);
       localStorage.removeItem(SETTINGS_KEY);
+      localStorage.removeItem(TARGETS_KEY);
+      localStorage.removeItem(SESSIONS_KEY);
     }
     dbSetAll('topics', []).catch(() => {});
     dbSetAll('problems', []).catch(() => {});
+    dbSetAll('studySessions', []).catch(() => {});
   },
 };

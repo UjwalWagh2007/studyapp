@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Flame,
   FolderTree,
   Repeat,
   Calendar as CalendarIcon,
@@ -31,6 +32,11 @@ export const Sidebar: React.FC = () => {
   } = useAppStore();
 
   const navItems: NavItem[] = [
+    {
+      id: 'dashboard',
+      label: 'Dashboard',
+      icon: <Flame size={18} />,
+    },
     {
       id: 'topics',
       label: 'Topics',

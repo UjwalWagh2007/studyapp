@@ -3,7 +3,8 @@ import { useAppStore } from '../../context/AppContext';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 
-// 3 Core Pages Only
+// Pages
+import { DashboardPage } from '../../pages/DashboardPage';
 import { TopicsPage } from '../../pages/TopicsPage';
 import { RevisionPage } from '../../pages/RevisionPage';
 import { CalendarPage } from '../../pages/CalendarPage';
@@ -13,14 +14,16 @@ export const AppLayout: React.FC = () => {
 
   const getPageTitleAndComponent = () => {
     switch (currentPath) {
+      case 'dashboard':
+        return { title: 'Dashboard', component: <DashboardPage /> };
       case 'topics':
-        return { title: 'Topics', component: <TopicsPage /> };
+        return { title: 'Topics & Problems', component: <TopicsPage /> };
       case 'revision':
-        return { title: 'Revision', component: <RevisionPage /> };
+        return { title: 'Spaced Repetition Revision', component: <RevisionPage /> };
       case 'calendar':
-        return { title: 'Calendar', component: <CalendarPage /> };
+        return { title: 'Revision Calendar', component: <CalendarPage /> };
       default:
-        return { title: 'Topics', component: <TopicsPage /> };
+        return { title: 'Dashboard', component: <DashboardPage /> };
     }
   };
 

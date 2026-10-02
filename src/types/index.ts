@@ -1,8 +1,8 @@
 // ==========================================================================
-// SIMPLIFIED PERSONAL CODING & REVISION SYSTEM TYPES
+// PERSONAL CODING & REVISION SYSTEM TYPES
 // ==========================================================================
 
-export type RoutePath = 'topics' | 'revision' | 'calendar';
+export type RoutePath = 'dashboard' | 'topics' | 'revision' | 'calendar';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -97,6 +97,59 @@ export type CreateQuestionInput = CreateProblemInput;
 export type QuestionStatus = ProblemStatus;
 
 // ==========================================================================
+// DAILY TARGETS, CONSISTENCY & PROGRESS TYPES
+// ==========================================================================
+
+export interface DailyTargetsConfig {
+  problemsTarget: number; // e.g. 5
+  revisionsTarget: number; // e.g. 5
+  studyMinutesTarget: number; // e.g. 120 minutes (2 hours)
+}
+
+export interface StudySession {
+  id: string;
+  dateStr: string; // YYYY-MM-DD
+  durationSeconds: number;
+  startedAt: string;
+  endedAt?: string;
+}
+
+export type HeatmapIntensity = 0 | 1 | 2 | 3 | 4 | 5; // 0=0%, 1=1-25%, 2=26-50%, 3=51-75%, 4=76-99%, 5=100% (Darkest Green)
+
+export interface HeatmapDayData {
+  dateStr: string; // YYYY-MM-DD
+  displayDate: string; // e.g. "Oct 2, 2026"
+  dayOfWeek: number; // 0=Sun .. 6=Sat
+  problemsSolved: number;
+  revisionsDone: number;
+  studySeconds: number;
+  progressPercentage: number;
+  intensity: HeatmapIntensity;
+  isFullyCompleted: boolean;
+  isToday: boolean;
+}
+
+export interface TodayProgressMetrics {
+  problemsSolved: number;
+  problemsTarget: number;
+  problemsPercentage: number;
+  problemsCompleted: boolean;
+
+  revisionsDone: number;
+  revisionsTarget: number;
+  revisionsPercentage: number;
+  revisionsCompleted: boolean;
+
+  studySeconds: number;
+  studyMinutesTarget: number;
+  studyPercentage: number;
+  studyCompleted: boolean;
+
+  allCompleted: boolean;
+  overallPercentage: number;
+}
+
+// ==========================================================================
 // CALENDAR REVISION TYPES
 // ==========================================================================
 
@@ -128,6 +181,8 @@ export type SyncStatus = 'IDLE' | 'SYNCING' | 'OFFLINE' | 'ERROR' | 'SUCCESS';
 export interface SyncPayloadData {
   topics: Topic[];
   problems: Problem[];
+  studySessions?: StudySession[];
+  dailyTargets?: DailyTargetsConfig;
   version: number;
   exportedAt: string;
 }

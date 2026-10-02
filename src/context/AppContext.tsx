@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type {
   RoutePath,
   ThemeMode,
@@ -7,6 +7,10 @@ import type {
   Problem,
   CreateProblemInput,
   ReviewRating,
+  DailyTargetsConfig,
+  StudySession,
+  TodayProgressMetrics,
+  HeatmapDayData,
   DeviceSyncConfig,
   SyncStatus,
 } from '../types';
@@ -17,7 +21,12 @@ import {
   getDueToday,
   getOverdue,
   getUpcoming,
+  normalizeDate,
 } from '../services/spacedRepetition';
+import {
+  computeTodayMetrics,
+  computeConsistencyHeatmap,
+} from '../services/metricsService';
 import {
   getDeviceSyncConfig,
   saveDeviceSyncConfig,
@@ -63,6 +72,22 @@ interface AppContextValue {
     options?: { timeSpentSeconds?: number; notes?: string }
   ) => void;
 
+  // Daily Targets, Study Time & Consistency Metrics
+  dailyTargets: DailyTargetsConfig;
+  updateDailyTargets: (targets: Partial<DailyTargetsConfig>) => void;
+  studySessions: StudySession[];
+  logStudySeconds: (seconds: number) => void;
+  todayMetrics: TodayProgressMetrics;
+  heatmapData: HeatmapDayData[];
+
+  // Built-in Study Timer
+  isTimerRunning: boolean;
+  timerSeconds: number;
+  startTimer: () => void;
+  pauseTimer: () => void;
+  resetTimer: () => void;
+  commitTimerSession: () => void;
+
   // Sync
   syncConfig: DeviceSyncConfig;
   syncStatus: SyncStatus;
@@ -73,15 +98,15 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // 1. Navigation state (Default: 'topics')
+  // 1. Navigation state (Default: 'dashboard')
   const [currentPath, setCurrentPath] = useState<RoutePath>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
       const hash = window.location.hash.replace('#', '') as RoutePath;
-      if (['topics', 'revision', 'calendar'].includes(hash)) {
+      if (['dashboard', 'topics', 'revision', 'calendar'].includes(hash)) {
         return hash;
       }
     }
-    return 'topics';
+    return 'dashboard';
   });
 
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
@@ -146,16 +171,87 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 3. Topics & Problems State
   const [topics, setTopics] = useState<Topic[]>(() => StorageService.getTopics());
   const [problems, setProblems] = useState<Problem[]>(() => StorageService.getProblems());
+  const [dailyTargets, setDailyTargets] = useState<DailyTargetsConfig>(() => StorageService.getDailyTargets());
+  const [studySessions, setStudySessions] = useState<StudySession[]>(() => StorageService.getStudySessions());
 
   // Hydrate from IndexedDB on startup
   useEffect(() => {
     StorageService.hydrateFromIndexedDB().then((hydrated) => {
       setTopics(hydrated.topics);
       setProblems(hydrated.problems);
+      setDailyTargets(hydrated.dailyTargets);
+      setStudySessions(hydrated.studySessions);
       setSettings(hydrated.settings);
       applyThemeToDOM(hydrated.settings.theme);
     });
   }, [applyThemeToDOM]);
+
+  // Target update
+  const updateDailyTargets = useCallback((updates: Partial<DailyTargetsConfig>) => {
+    setDailyTargets((prev) => {
+      const next = { ...prev, ...updates };
+      StorageService.saveDailyTargets(next);
+      return next;
+    });
+  }, []);
+
+  // Study session logging
+  const logStudySeconds = useCallback((seconds: number) => {
+    if (seconds <= 0) return;
+    const todayStr = normalizeDate(new Date());
+    const newSession: StudySession = {
+      id: 'sess-' + Math.random().toString(36).substring(2, 9),
+      dateStr: todayStr,
+      durationSeconds: seconds,
+      startedAt: new Date(Date.now() - seconds * 1000).toISOString(),
+      endedAt: new Date().toISOString(),
+    };
+
+    setStudySessions((prev) => {
+      const next = [newSession, ...prev];
+      StorageService.saveStudySessions(next);
+      return next;
+    });
+  }, []);
+
+  // 4. Built-in Study Timer State
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (isTimerRunning) {
+      timerIntervalRef.current = setInterval(() => {
+        setTimerSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    }
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [isTimerRunning]);
+
+  const startTimer = useCallback(() => {
+    setIsTimerRunning(true);
+  }, []);
+
+  const pauseTimer = useCallback(() => {
+    setIsTimerRunning(false);
+  }, []);
+
+  const resetTimer = useCallback(() => {
+    setIsTimerRunning(false);
+    setTimerSeconds(0);
+  }, []);
+
+  const commitTimerSession = useCallback(() => {
+    if (timerSeconds > 0) {
+      logStudySeconds(timerSeconds);
+      setTimerSeconds(0);
+      setIsTimerRunning(false);
+    }
+  }, [timerSeconds, logStudySeconds]);
 
   // Topic CRUD
   const addTopic = useCallback((name: string): Topic => {
@@ -238,7 +334,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       reviewHistory: input.reviewHistory ?? [],
     };
 
-    // Automatic spaced repetition scheduling for tomorrow (or user's manual date)
+    // Automatic spaced repetition scheduling for tomorrow (or user's manual override)
     const scheduledProblem = scheduleInitialLearning(rawProblem, input.solvedAt || new Date());
     if (input.nextReviewAt) {
       scheduledProblem.nextReviewAt = input.nextReviewAt;
@@ -298,7 +394,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const overdueProblems = useMemo(() => getOverdue(problems), [problems]);
   const upcomingProblems = useMemo(() => getUpcoming(problems, 7), [problems]);
 
-  // 4. Sync Config & State
+  // Today Progress Metrics & Heatmap Data
+  const todayMetrics = useMemo(() => {
+    return computeTodayMetrics(problems, studySessions, dailyTargets);
+  }, [problems, studySessions, dailyTargets]);
+
+  const heatmapData = useMemo(() => {
+    return computeConsistencyHeatmap(problems, studySessions, dailyTargets, 52);
+  }, [problems, studySessions, dailyTargets]);
+
+  // 5. Sync Config & State
   const [syncConfig, setSyncConfig] = useState<DeviceSyncConfig>(() => getDeviceSyncConfig());
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('IDLE');
 
@@ -320,6 +425,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (res.mergedData) {
           setTopics(res.mergedData.topics);
           setProblems(res.mergedData.problems);
+          if (res.mergedData.studySessions) {
+            setStudySessions(res.mergedData.studySessions);
+          }
+          if (res.mergedData.dailyTargets) {
+            setDailyTargets(res.mergedData.dailyTargets);
+          }
         }
       } else {
         setSyncStatus('ERROR');
@@ -359,6 +470,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       overdueProblems,
       upcomingProblems,
       recordReview,
+      dailyTargets,
+      updateDailyTargets,
+      studySessions,
+      logStudySeconds,
+      todayMetrics,
+      heatmapData,
+      isTimerRunning,
+      timerSeconds,
+      startTimer,
+      pauseTimer,
+      resetTimer,
+      commitTimerSession,
       syncConfig,
       syncStatus,
       triggerCloudSync,
@@ -388,6 +511,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       overdueProblems,
       upcomingProblems,
       recordReview,
+      dailyTargets,
+      updateDailyTargets,
+      studySessions,
+      logStudySeconds,
+      todayMetrics,
+      heatmapData,
+      isTimerRunning,
+      timerSeconds,
+      startTimer,
+      pauseTimer,
+      resetTimer,
+      commitTimerSession,
       syncConfig,
       syncStatus,
       triggerCloudSync,

@@ -4,11 +4,13 @@
  */
 
 const DB_NAME = 'PersonalStudyOS_DB';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const STORES = [
   'topics',
   'problems',
+  'studySessions',
+  'dailyTargets',
   'settings',
   'syncVault',
 ] as const;
