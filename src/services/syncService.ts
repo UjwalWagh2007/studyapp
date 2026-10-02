@@ -1,18 +1,31 @@
 /**
- * MULTI-DEVICE SYNC & CONFLICT-SAFE MERGE FOR TOPICS & PROBLEMS
+ * MULTI-DEVICE SYNC & CONFLICT-SAFE MERGE ENGINE
+ * Personal Workspace Cross-Device Persistence (Topics, Problems, Sessions, Mock Tests, Targets)
  */
 
-import type { DeviceSyncConfig, SyncEnvelope, SyncPayloadData, Topic, Problem } from '../types';
+import type {
+  DeviceSyncConfig,
+  SyncEnvelope,
+  SyncPayloadData,
+  Topic,
+  Problem,
+  StudySession,
+  MockTest,
+} from '../types';
 import { StorageService } from './storage';
 import { dbSetSingleton } from './db';
 
-const SYNC_CONFIG_KEY = 'studyos_sync_config_v3';
+const SYNC_CONFIG_KEY = 'studyos_sync_config_v4';
 
 export function generateSyncVaultId(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return 'psync-' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let p1 = '';
+  let p2 = '';
+  for (let i = 0; i < 4; i++) {
+    p1 += chars.charAt(Math.floor(Math.random() * chars.length));
+    p2 += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return 'psync-' + Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+  return `STUDY-${p1}-${p2}`;
 }
 
 export function generateDeviceSecretKey(): string {
@@ -39,13 +52,47 @@ export function getClientDeviceName(): string {
   return `${isMobile ? 'Mobile' : 'Desktop'} (${platform})`;
 }
 
+// URL Workspace ID Auto-detection
+export function extractUrlWorkspaceId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    const fromSearch = searchParams.get('ws') || searchParams.get('vault') || searchParams.get('pair');
+    if (fromSearch) return fromSearch.trim();
+
+    if (window.location.hash.includes('?')) {
+      const hashParams = new URLSearchParams(window.location.hash.split('?')[1]);
+      const fromHash = hashParams.get('ws') || hashParams.get('vault') || hashParams.get('pair');
+      if (fromHash) return fromHash.trim();
+    }
+  } catch {}
+  return null;
+}
+
+export function getPairingUrl(vaultId: string): string {
+  if (typeof window === 'undefined') return `?ws=${vaultId}`;
+  const origin = window.location.origin;
+  return `${origin}/?ws=${encodeURIComponent(vaultId)}`;
+}
+
 let memorySyncConfig: DeviceSyncConfig | null = null;
 
 export function getDeviceSyncConfig(): DeviceSyncConfig {
+  const urlWorkspace = extractUrlWorkspaceId();
+
   try {
     if (typeof localStorage !== 'undefined') {
       const raw = localStorage.getItem(SYNC_CONFIG_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed: DeviceSyncConfig = JSON.parse(raw);
+        // If user navigated via a pair link with a different workspace ID, switch to it
+        if (urlWorkspace && urlWorkspace !== parsed.vaultId) {
+          parsed.vaultId = urlWorkspace;
+          parsed.isSyncEnabled = true;
+          saveDeviceSyncConfig(parsed);
+        }
+        return parsed;
+      }
     } else if (memorySyncConfig) {
       return memorySyncConfig;
     }
@@ -54,11 +101,11 @@ export function getDeviceSyncConfig(): DeviceSyncConfig {
   }
 
   const initialConfig: DeviceSyncConfig = {
-    vaultId: generateSyncVaultId(),
+    vaultId: urlWorkspace || generateSyncVaultId(),
     secretKey: generateDeviceSecretKey(),
     deviceName: getClientDeviceName(),
-    isSyncEnabled: false,
-    autoSyncIntervalSeconds: 30,
+    isSyncEnabled: true, // Enabled by default for seamless personal workspace experience
+    autoSyncIntervalSeconds: 20,
   };
 
   memorySyncConfig = initialConfig;
@@ -85,17 +132,21 @@ export function saveDeviceSyncConfig(config: DeviceSyncConfig): void {
   }
 }
 
-function mergeEntitiesByTimestamp<T extends { id: string; updatedAt?: string; createdAt?: string }>(
-  local: T[],
-  remote: T[]
+// --------------------------------------------------------------------------
+// Conflict-Safe Merge Helpers
+// --------------------------------------------------------------------------
+export function mergeEntitiesByTimestamp<T extends { id: string; updatedAt?: string; createdAt?: string }>(
+  local: T[] = [],
+  remote: T[] = []
 ): T[] {
   const map = new Map<string, T>();
 
   local.forEach((item) => {
-    map.set(item.id, item);
+    if (item?.id) map.set(item.id, item);
   });
 
   remote.forEach((remoteItem) => {
+    if (!remoteItem?.id) return;
     const localItem = map.get(remoteItem.id);
     if (!localItem) {
       map.set(remoteItem.id, remoteItem);
@@ -112,12 +163,15 @@ function mergeEntitiesByTimestamp<T extends { id: string; updatedAt?: string; cr
   return Array.from(map.values());
 }
 
-function mergeProblems(local: Problem[], remote: Problem[]): Problem[] {
+export function mergeProblems(local: Problem[] = [], remote: Problem[] = []): Problem[] {
   const map = new Map<string, Problem>();
 
-  local.forEach((p) => map.set(p.id, p));
+  local.forEach((p) => {
+    if (p?.id) map.set(p.id, p);
+  });
 
   remote.forEach((remoteP) => {
+    if (!remoteP?.id) return;
     const localP = map.get(remoteP.id);
     if (!localP) {
       map.set(remoteP.id, remoteP);
@@ -125,12 +179,19 @@ function mergeProblems(local: Problem[], remote: Problem[]): Problem[] {
       const localTime = new Date(localP.updatedAt || localP.createdAt || 0).getTime();
       const remoteTime = new Date(remoteP.updatedAt || remoteP.createdAt || 0).getTime();
 
+      // Union review histories
       const reviewLogsMap = new Map<string, Problem['reviewHistory'][number]>();
-      (localP.reviewHistory || []).forEach((r) => reviewLogsMap.set(r.reviewedAt, r));
-      (remoteP.reviewHistory || []).forEach((r) => reviewLogsMap.set(r.reviewedAt, r));
+      (localP.reviewHistory || []).forEach((r) => {
+        const key = r.reviewedAt || r.id;
+        if (key) reviewLogsMap.set(key, r);
+      });
+      (remoteP.reviewHistory || []).forEach((r) => {
+        const key = r.reviewedAt || r.id;
+        if (key) reviewLogsMap.set(key, r);
+      });
 
       const mergedReviewHistory = Array.from(reviewLogsMap.values()).sort(
-        (a, b) => new Date(a.reviewedAt).getTime() - new Date(b.reviewedAt).getTime()
+        (a, b) => new Date(a.reviewedAt || 0).getTime() - new Date(b.reviewedAt || 0).getTime()
       );
 
       const baseProblem = remoteTime >= localTime ? remoteP : localP;
@@ -153,6 +214,9 @@ export function mergeSyncPayloadData(
   return {
     topics: mergeEntitiesByTimestamp<Topic>(local.topics || [], remote.topics || []),
     problems: mergeProblems(local.problems || [], remote.problems || []),
+    studySessions: mergeEntitiesByTimestamp<StudySession>(local.studySessions || [], remote.studySessions || []),
+    mockTests: mergeEntitiesByTimestamp<MockTest>(local.mockTests || [], remote.mockTests || []),
+    dailyTargets: remote.dailyTargets || local.dailyTargets,
     version: Math.max(local.version || 1, remote.version || 1),
     exportedAt: new Date().toISOString(),
   };
@@ -162,23 +226,34 @@ export function captureCurrentSyncPayload(): SyncPayloadData {
   return {
     topics: StorageService.getTopics(),
     problems: StorageService.getProblems(),
-    version: 3,
+    studySessions: StorageService.getStudySessions(),
+    dailyTargets: StorageService.getDailyTargets(),
+    mockTests: StorageService.getMockTests(),
+    version: 4,
     exportedAt: new Date().toISOString(),
   };
 }
 
 export function applyMergedSyncPayload(merged: SyncPayloadData): void {
-  StorageService.saveTopics(merged.topics);
-  StorageService.saveProblems(merged.problems);
+  if (merged.topics) StorageService.saveTopics(merged.topics);
+  if (merged.problems) StorageService.saveProblems(merged.problems);
+  if (merged.studySessions) StorageService.saveStudySessions(merged.studySessions);
+  if (merged.dailyTargets) StorageService.saveDailyTargets(merged.dailyTargets);
+  if (merged.mockTests) StorageService.saveMockTests(merged.mockTests);
 }
 
-export async function syncWithCloud(): Promise<{
+// --------------------------------------------------------------------------
+// Cloud Synchronization Core Function
+// --------------------------------------------------------------------------
+export async function syncWithCloud(overrideVaultId?: string): Promise<{
   success: boolean;
   mergedData?: SyncPayloadData;
   error?: string;
 }> {
   const config = getDeviceSyncConfig();
-  if (!config.isSyncEnabled) {
+  const activeVaultId = overrideVaultId || config.vaultId;
+
+  if (!config.isSyncEnabled && !overrideVaultId) {
     return { success: true };
   }
 
@@ -189,7 +264,7 @@ export async function syncWithCloud(): Promise<{
 
   const localPayload = captureCurrentSyncPayload();
   const envelope: SyncEnvelope = {
-    vaultId: config.vaultId,
+    vaultId: activeVaultId,
     deviceId: config.secretKey.slice(0, 8),
     timestamp: new Date().toISOString(),
     data: localPayload,
@@ -200,7 +275,7 @@ export async function syncWithCloud(): Promise<{
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-sync-vault': config.vaultId,
+        'x-sync-vault': activeVaultId,
         'x-sync-secret': config.secretKey,
       },
       body: JSON.stringify(envelope),
@@ -221,6 +296,10 @@ export async function syncWithCloud(): Promise<{
       applyMergedSyncPayload(merged);
 
       config.lastSuccessfulSyncAt = new Date().toISOString();
+      if (overrideVaultId) {
+        config.vaultId = overrideVaultId;
+        config.isSyncEnabled = true;
+      }
       saveDeviceSyncConfig(config);
 
       return { success: true, mergedData: merged };
@@ -228,7 +307,15 @@ export async function syncWithCloud(): Promise<{
 
     return { success: true };
   } catch (err: any) {
-    console.warn('[SyncService] Cloud sync fallback:', err.message);
+    console.warn('[SyncService] Cloud sync notice:', err.message);
     return { success: false, error: err.message };
   }
+}
+
+export async function fetchRemoteWorkspace(vaultId: string): Promise<{
+  success: boolean;
+  mergedData?: SyncPayloadData;
+  error?: string;
+}> {
+  return syncWithCloud(vaultId);
 }

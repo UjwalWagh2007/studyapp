@@ -121,8 +121,10 @@ interface AppContextValue {
   // Sync
   syncConfig: DeviceSyncConfig;
   syncStatus: SyncStatus;
+  isOnline: boolean;
   triggerCloudSync: () => Promise<void>;
   updateSyncConfig: (updates: Partial<DeviceSyncConfig>) => void;
+  connectWorkspace: (workspaceId: string) => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -205,7 +207,90 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [studySessions, setStudySessions] = useState<StudySession[]>(() => StorageService.getStudySessions());
   const [mockTests, setMockTests] = useState<MockTest[]>(() => StorageService.getMockTests());
 
-  // Hydrate from IndexedDB on startup
+  // 4. Multi-Device Sync Engine
+  const [syncConfig, setSyncConfig] = useState<DeviceSyncConfig>(() => getDeviceSyncConfig());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('IDLE');
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  const syncDebounceRef = React.useRef<any>(null);
+
+  const triggerCloudSync = useCallback(async (overrideVaultId?: string) => {
+    if (!syncConfig.isSyncEnabled && !overrideVaultId) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSyncStatus('OFFLINE');
+      return;
+    }
+
+    setSyncStatus('SYNCING');
+    try {
+      const res = await syncWithCloud(overrideVaultId);
+      if (res.success) {
+        setSyncStatus('SUCCESS');
+        if (res.mergedData) {
+          if (res.mergedData.topics) setTopics(res.mergedData.topics);
+          if (res.mergedData.problems) setProblems(res.mergedData.problems);
+          if (res.mergedData.studySessions) setStudySessions(res.mergedData.studySessions);
+          if (res.mergedData.dailyTargets) setDailyTargets(res.mergedData.dailyTargets);
+          if (res.mergedData.mockTests) setMockTests(res.mergedData.mockTests);
+        }
+      } else {
+        setSyncStatus(navigator.onLine ? 'ERROR' : 'OFFLINE');
+      }
+    } catch {
+      setSyncStatus('ERROR');
+    } finally {
+      setTimeout(() => {
+        setSyncStatus((current) => (current === 'SYNCING' || current === 'SUCCESS' ? 'IDLE' : current));
+      }, 3000);
+    }
+  }, [syncConfig.isSyncEnabled]);
+
+  const scheduleAutoSync = useCallback(() => {
+    if (syncDebounceRef.current) {
+      clearTimeout(syncDebounceRef.current);
+    }
+    syncDebounceRef.current = setTimeout(() => {
+      triggerCloudSync();
+    }, 1200);
+  }, [triggerCloudSync]);
+
+  const updateSyncConfig = useCallback((updates: Partial<DeviceSyncConfig>) => {
+    setSyncConfig((prev) => {
+      const next = { ...prev, ...updates };
+      saveDeviceSyncConfig(next);
+      return next;
+    });
+  }, []);
+
+  const connectWorkspace = useCallback(async (newVaultId: string): Promise<boolean> => {
+    const cleanId = newVaultId.trim().toUpperCase();
+    if (!cleanId) return false;
+    setSyncStatus('SYNCING');
+    try {
+      const res = await syncWithCloud(cleanId);
+      const nextConfig = { ...syncConfig, vaultId: cleanId, isSyncEnabled: true };
+      setSyncConfig(nextConfig);
+      saveDeviceSyncConfig(nextConfig);
+
+      if (res.success && res.mergedData) {
+        if (res.mergedData.topics) setTopics(res.mergedData.topics);
+        if (res.mergedData.problems) setProblems(res.mergedData.problems);
+        if (res.mergedData.studySessions) setStudySessions(res.mergedData.studySessions);
+        if (res.mergedData.dailyTargets) setDailyTargets(res.mergedData.dailyTargets);
+        if (res.mergedData.mockTests) setMockTests(res.mergedData.mockTests);
+      }
+      setSyncStatus('SUCCESS');
+      return true;
+    } catch (err) {
+      console.error('Failed to connect workspace', err);
+      setSyncStatus('ERROR');
+      return false;
+    }
+  }, [syncConfig]);
+
+  // Hydrate from IndexedDB on startup & trigger initial sync
   useEffect(() => {
     StorageService.hydrateFromIndexedDB().then((hydrated) => {
       setTopics(hydrated.topics);
@@ -215,8 +300,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setMockTests(hydrated.mockTests);
       setSettings(hydrated.settings);
       applyThemeToDOM(hydrated.settings.theme);
+
+      // Perform initial cloud sync & workspace check
+      triggerCloudSync();
     });
-  }, [applyThemeToDOM]);
+  }, [applyThemeToDOM, triggerCloudSync]);
+
+  // Network online/offline event listeners
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setSyncStatus('SYNCING');
+      triggerCloudSync();
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setSyncStatus('OFFLINE');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [triggerCloudSync]);
+
+  // Window focus & visibility listeners (pull latest changes when switching tabs/apps)
+  useEffect(() => {
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        triggerCloudSync();
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [triggerCloudSync]);
+
+  // Periodic background sync interval
+  useEffect(() => {
+    if (!syncConfig.isSyncEnabled) return;
+    const intervalTime = Math.max(15, syncConfig.autoSyncIntervalSeconds || 20) * 1000;
+    const interval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        triggerCloudSync();
+      }
+    }, intervalTime);
+
+    return () => clearInterval(interval);
+  }, [syncConfig.isSyncEnabled, syncConfig.autoSyncIntervalSeconds, triggerCloudSync]);
 
   // Target update
   const updateDailyTargets = useCallback((updates: Partial<DailyTargetsConfig>) => {
@@ -225,9 +364,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveDailyTargets(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
-  // 4. Dedicated Study Sessions System
+  // Dedicated Study Sessions System
   const activeSession = useMemo(() => {
     return studySessions.find((s) => s.status === 'RUNNING' || s.status === 'PAUSED') || null;
   }, [studySessions]);
@@ -235,13 +375,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const createAndStartSession = useCallback((name: string): StudySession => {
     const newSession = createNewStudySession(name);
     setStudySessions((prev) => {
-      // If there was an existing active session, pause or complete it
       const next = [newSession, ...prev.map((s) => (s.status === 'RUNNING' ? pauseStudySession(s) : s))];
       StorageService.saveStudySessions(next);
       return next;
     });
+    scheduleAutoSync();
     return newSession;
-  }, []);
+  }, [scheduleAutoSync]);
 
   const pauseSessionById = useCallback((id: string) => {
     setStudySessions((prev) => {
@@ -249,7 +389,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveStudySessions(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const resumeSessionById = useCallback((id: string) => {
     setStudySessions((prev) => {
@@ -261,7 +402,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveStudySessions(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const endSessionById = useCallback((id: string) => {
     setStudySessions((prev) => {
@@ -269,7 +411,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveStudySessions(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const deleteSessionById = useCallback((id: string) => {
     setStudySessions((prev) => {
@@ -277,9 +420,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveStudySessions(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
-  // 5. Mock Tests System
+  // Mock Tests System
   const activeMockTest = useMemo(() => {
     return mockTests.find((t) => t.status === 'IN_PROGRESS' || t.status === 'PAUSED') || null;
   }, [mockTests]);
@@ -291,7 +435,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveMockTests(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const startMockTestAction = useCallback((testId: string, startIndex: number = 0) => {
     setMockTests((prev) => {
@@ -302,7 +447,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveMockTests(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const pauseMockTestAction = useCallback((testId: string) => {
     setMockTests((prev) => {
@@ -313,7 +459,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveMockTests(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const resumeMockTestAction = useCallback((testId: string) => {
     setMockTests((prev) => {
@@ -324,7 +471,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveMockTests(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const setActiveQuestionAction = useCallback((testId: string, questionIndex: number) => {
     setMockTests((prev) => {
@@ -335,7 +483,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveMockTests(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const completeQuestionAction = useCallback(
     (testId: string, questionIndex: number, assessment: MockQuestionSelfAssessment) => {
@@ -347,8 +496,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         StorageService.saveMockTests(next);
         return next;
       });
+      scheduleAutoSync();
     },
-    []
+    [scheduleAutoSync]
   );
 
   const finishMockTestAction = useCallback((testId: string) => {
@@ -360,7 +510,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveMockTests(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const deleteMockTestAction = useCallback((testId: string) => {
     setMockTests((prev) => {
@@ -368,7 +519,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveMockTests(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   // Topic CRUD
   const addTopic = useCallback((name: string): Topic => {
@@ -385,9 +537,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveTopics(next);
       return next;
     });
-
+    scheduleAutoSync();
     return newTopic;
-  }, []);
+  }, [scheduleAutoSync]);
 
   const updateTopic = useCallback((id: string, name: string) => {
     const trimmed = name.trim();
@@ -406,7 +558,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveProblems(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   const deleteTopic = useCallback((id: string) => {
     setTopics((prev) => {
@@ -424,7 +577,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (selectedTopicId === id) {
       setSelectedTopicId(null);
     }
-  }, [selectedTopicId]);
+    scheduleAutoSync();
+  }, [selectedTopicId, scheduleAutoSync]);
 
   // Problem CRUD
   const addProblem = useCallback((input: CreateProblemInput): Problem => {
@@ -459,9 +613,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveProblems(next);
       return next;
     });
-
+    scheduleAutoSync();
     return scheduledProblem;
-  }, [topics]);
+  }, [topics, scheduleAutoSync]);
 
   const updateProblem = useCallback((id: string, updates: Partial<Problem>) => {
     setProblems((prev) => {
@@ -478,7 +632,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveProblems(next);
       return next;
     });
-  }, [topics]);
+    scheduleAutoSync();
+  }, [topics, scheduleAutoSync]);
 
   const deleteProblem = useCallback((id: string) => {
     setProblems((prev) => {
@@ -486,7 +641,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       StorageService.saveProblems(next);
       return next;
     });
-  }, []);
+    scheduleAutoSync();
+  }, [scheduleAutoSync]);
 
   // Spaced Repetition Reviews
   const recordReview = useCallback(
@@ -500,8 +656,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         StorageService.saveProblems(next);
         return next;
       });
+      scheduleAutoSync();
     },
-    []
+    [scheduleAutoSync]
   );
 
   const dueTodayProblems = useMemo(() => getDueToday(problems), [problems]);
@@ -516,47 +673,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const heatmapData = useMemo(() => {
     return computeConsistencyHeatmap(problems, studySessions, dailyTargets, 52);
   }, [problems, studySessions, dailyTargets]);
-
-  // 5. Sync Config & State
-  const [syncConfig, setSyncConfig] = useState<DeviceSyncConfig>(() => getDeviceSyncConfig());
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>('IDLE');
-
-  const updateSyncConfig = useCallback((updates: Partial<DeviceSyncConfig>) => {
-    setSyncConfig((prev) => {
-      const next = { ...prev, ...updates };
-      saveDeviceSyncConfig(next);
-      return next;
-    });
-  }, []);
-
-  const triggerCloudSync = useCallback(async () => {
-    if (!syncConfig.isSyncEnabled) return;
-    setSyncStatus('SYNCING');
-    try {
-      const res = await syncWithCloud();
-      if (res.success) {
-        setSyncStatus('SUCCESS');
-        if (res.mergedData) {
-          setTopics(res.mergedData.topics);
-          setProblems(res.mergedData.problems);
-          if (res.mergedData.studySessions) {
-            setStudySessions(res.mergedData.studySessions);
-          }
-          if (res.mergedData.dailyTargets) {
-            setDailyTargets(res.mergedData.dailyTargets);
-          }
-        }
-      } else {
-        setSyncStatus('ERROR');
-      }
-    } catch {
-      setSyncStatus('ERROR');
-    } finally {
-      setTimeout(() => {
-        setSyncStatus('IDLE');
-      }, 3000);
-    }
-  }, [syncConfig.isSyncEnabled]);
 
   const value = useMemo(
     () => ({
@@ -607,8 +723,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       heatmapData,
       syncConfig,
       syncStatus,
+      isOnline,
       triggerCloudSync,
       updateSyncConfig,
+      connectWorkspace,
     }),
     [
       currentPath,
@@ -657,8 +775,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       heatmapData,
       syncConfig,
       syncStatus,
+      isOnline,
       triggerCloudSync,
       updateSyncConfig,
+      connectWorkspace,
     ]
   );
 
@@ -672,3 +792,4 @@ export const useAppStore = (): AppContextValue => {
   }
   return context;
 };
+

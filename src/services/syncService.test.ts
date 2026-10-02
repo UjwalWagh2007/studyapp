@@ -5,8 +5,9 @@ import {
   getDeviceSyncConfig,
   saveDeviceSyncConfig,
   mergeSyncPayloadData,
+  getPairingUrl,
 } from './syncService';
-import type { SyncPayloadData, Problem, Topic } from '../types';
+import type { SyncPayloadData, Problem, Topic, StudySession, MockTest, DailyTargetsConfig } from '../types';
 
 describe('Multi-Device Sync Service', () => {
   beforeEach(() => {
@@ -15,9 +16,9 @@ describe('Multi-Device Sync Service', () => {
     }
   });
 
-  it('generates a valid private Sync Vault ID', () => {
+  it('generates a valid personal Workspace ID (STUDY-XXXX-YYYY)', () => {
     const vaultId = generateSyncVaultId();
-    expect(vaultId).toMatch(/^psync-[a-f0-9]{16}$/i);
+    expect(vaultId).toMatch(/^STUDY-[A-Z0-9]{4}-[A-Z0-9]{4}$/i);
   });
 
   it('generates a 32-character secret key', () => {
@@ -25,25 +26,31 @@ describe('Multi-Device Sync Service', () => {
     expect(key.length).toBe(32);
   });
 
-  it('initializes and saves device sync configuration', () => {
+  it('initializes and saves device sync configuration with default enabled', () => {
     const config = getDeviceSyncConfig();
     expect(config.vaultId).toBeDefined();
-    expect(config.isSyncEnabled).toBe(false);
+    expect(config.isSyncEnabled).toBe(true);
 
-    config.isSyncEnabled = true;
-    config.vaultId = 'psync-test-vault-123';
+    config.vaultId = 'STUDY-TEST-1234';
     saveDeviceSyncConfig(config);
 
     const reloaded = getDeviceSyncConfig();
-    expect(reloaded.vaultId).toBe('psync-test-vault-123');
+    expect(reloaded.vaultId).toBe('STUDY-TEST-1234');
     expect(reloaded.isSyncEnabled).toBe(true);
+  });
+
+  it('generates a correct pairing url', () => {
+    const url = getPairingUrl('STUDY-ABCD-5678');
+    expect(url).toContain('ws=STUDY-ABCD-5678');
   });
 
   describe('mergeSyncPayloadData', () => {
     const basePayload: SyncPayloadData = {
       topics: [],
       problems: [],
-      version: 1,
+      studySessions: [],
+      mockTests: [],
+      version: 4,
       exportedAt: new Date().toISOString(),
     };
 
@@ -132,6 +139,100 @@ describe('Multi-Device Sync Service', () => {
       const mergedP = merged.problems[0];
 
       expect(mergedP.reviewHistory.length).toBe(2);
+      expect(mergedP.currentIntervalDays).toBe(3);
+    });
+
+    it('merges study sessions correctly across devices', () => {
+      const session1: StudySession = {
+        id: 'sess-laptop-1',
+        name: 'DSA Trees',
+        status: 'COMPLETED',
+        dateStr: '2026-10-01',
+        startTime: '2026-10-01T08:00:00.000Z',
+        endTime: '2026-10-01T09:30:00.000Z',
+        focusSeconds: 5400,
+        breakSeconds: 600,
+        lastStateChangeAt: '2026-10-01T09:30:00.000Z',
+        createdAt: '2026-10-01T08:00:00.000Z',
+        updatedAt: '2026-10-01T09:30:00.000Z',
+      };
+
+      const session2: StudySession = {
+        id: 'sess-phone-1',
+        name: 'Graphs Session',
+        status: 'COMPLETED',
+        dateStr: '2026-10-01',
+        startTime: '2026-10-01T14:00:00.000Z',
+        endTime: '2026-10-01T15:00:00.000Z',
+        focusSeconds: 3600,
+        breakSeconds: 0,
+        lastStateChangeAt: '2026-10-01T15:00:00.000Z',
+        createdAt: '2026-10-01T14:00:00.000Z',
+        updatedAt: '2026-10-01T15:00:00.000Z',
+      };
+
+      const local: SyncPayloadData = { ...basePayload, studySessions: [session1] };
+      const remote: SyncPayloadData = { ...basePayload, studySessions: [session2] };
+
+      const merged = mergeSyncPayloadData(local, remote);
+      expect(merged.studySessions?.length).toBe(2);
+      expect(merged.studySessions?.map((s) => s.id)).toContain('sess-laptop-1');
+      expect(merged.studySessions?.map((s) => s.id)).toContain('sess-phone-1');
+    });
+
+    it('merges mock tests correctly across devices', () => {
+      const mockTest: MockTest = {
+        id: 'mock-1',
+        weekKey: '2026-W40',
+        weekLabel: 'Week 40',
+        testDay: 'SATURDAY',
+        scheduledDate: '2026-10-03',
+        status: 'COMPLETED',
+        questions: [],
+        currentQuestionIndex: 0,
+        totalTimeSeconds: 3600,
+        score: 8,
+        maxScore: 10,
+        percentage: 80,
+        easyScore: 3,
+        easyTotal: 3,
+        mediumScore: 4,
+        mediumTotal: 5,
+        hardScore: 1,
+        hardTotal: 2,
+        createdAt: '2026-10-01T10:00:00.000Z',
+        updatedAt: '2026-10-01T11:00:00.000Z',
+      };
+
+      const local: SyncPayloadData = { ...basePayload, mockTests: [] };
+      const remote: SyncPayloadData = { ...basePayload, mockTests: [mockTest] };
+
+      const merged = mergeSyncPayloadData(local, remote);
+      expect(merged.mockTests?.length).toBe(1);
+      expect(merged.mockTests?.[0].score).toBe(8);
+    });
+
+    it('merges updated daily targets from remote device', () => {
+      const localTargets: DailyTargetsConfig = {
+        problemsTarget: 2,
+        revisionsTarget: 5,
+        studyMinutesTarget: 60,
+      };
+
+      const remoteTargets: DailyTargetsConfig = {
+        problemsTarget: 4,
+        revisionsTarget: 10,
+        studyMinutesTarget: 120,
+      };
+
+      const local: SyncPayloadData = { ...basePayload, dailyTargets: localTargets };
+      const remote: SyncPayloadData = { ...basePayload, dailyTargets: remoteTargets };
+
+      const merged = mergeSyncPayloadData(local, remote);
+      expect(merged.dailyTargets?.studyMinutesTarget).toBe(120);
+      expect(merged.dailyTargets?.problemsTarget).toBe(4);
     });
   });
 });
+
+
