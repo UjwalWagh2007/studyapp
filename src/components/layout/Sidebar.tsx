@@ -5,6 +5,7 @@ import {
   Repeat,
   Calendar as CalendarIcon,
   Clock,
+  GraduationCap,
   ChevronLeft,
   ChevronRight,
   Sparkles,
@@ -32,6 +33,7 @@ export const Sidebar: React.FC = () => {
     closeMobileSidebar,
     dueTodayProblems,
     activeSession,
+    activeMockTest,
   } = useAppStore();
 
   const navItems: NavItem[] = [
@@ -61,6 +63,12 @@ export const Sidebar: React.FC = () => {
       label: 'Sessions',
       icon: <Clock size={18} />,
       isActiveIndicator: Boolean(activeSession),
+    },
+    {
+      id: 'mock-tests',
+      label: 'Mock Tests',
+      icon: <GraduationCap size={18} />,
+      isActiveIndicator: Boolean(activeMockTest),
     },
   ];
 

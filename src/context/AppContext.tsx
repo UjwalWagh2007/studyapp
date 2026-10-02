@@ -13,6 +13,8 @@ import type {
   HeatmapDayData,
   DeviceSyncConfig,
   SyncStatus,
+  MockTest,
+  MockQuestionSelfAssessment,
 } from '../types';
 import { StorageService } from '../services/storage';
 import {
@@ -32,6 +34,14 @@ import {
   resumeStudySession,
   completeStudySession,
 } from '../services/sessionService';
+import {
+  startMockTest,
+  pauseMockTest,
+  resumeMockTest,
+  setActiveQuestion,
+  completeQuestion,
+  finishMockTest,
+} from '../services/mockTestService';
 import {
   getDeviceSyncConfig,
   saveDeviceSyncConfig,
@@ -92,6 +102,22 @@ interface AppContextValue {
   endSessionById: (id: string) => void;
   deleteSessionById: (id: string) => void;
 
+  // Mock Tests System
+  mockTests: MockTest[];
+  activeMockTest: MockTest | null;
+  saveOrUpdateMockTest: (test: MockTest) => void;
+  startMockTestAction: (testId: string, startIndex?: number) => void;
+  pauseMockTestAction: (testId: string) => void;
+  resumeMockTestAction: (testId: string) => void;
+  setActiveQuestionAction: (testId: string, questionIndex: number) => void;
+  completeQuestionAction: (
+    testId: string,
+    questionIndex: number,
+    assessment: MockQuestionSelfAssessment
+  ) => void;
+  finishMockTestAction: (testId: string) => void;
+  deleteMockTestAction: (testId: string) => void;
+
   // Sync
   syncConfig: DeviceSyncConfig;
   syncStatus: SyncStatus;
@@ -106,7 +132,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentPath, setCurrentPath] = useState<RoutePath>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
       const hash = window.location.hash.replace('#', '') as RoutePath;
-      if (['dashboard', 'topics', 'revision', 'calendar', 'sessions'].includes(hash)) {
+      if (['dashboard', 'topics', 'revision', 'calendar', 'sessions', 'mock-tests'].includes(hash)) {
         return hash;
       }
     }
@@ -172,11 +198,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     applyThemeToDOM(settings.theme);
   }, [settings.theme, applyThemeToDOM]);
 
-  // 3. Topics & Problems State
+  // 3. Topics, Problems, Targets, Sessions & Mock Tests State
   const [topics, setTopics] = useState<Topic[]>(() => StorageService.getTopics());
   const [problems, setProblems] = useState<Problem[]>(() => StorageService.getProblems());
   const [dailyTargets, setDailyTargets] = useState<DailyTargetsConfig>(() => StorageService.getDailyTargets());
   const [studySessions, setStudySessions] = useState<StudySession[]>(() => StorageService.getStudySessions());
+  const [mockTests, setMockTests] = useState<MockTest[]>(() => StorageService.getMockTests());
 
   // Hydrate from IndexedDB on startup
   useEffect(() => {
@@ -185,6 +212,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setProblems(hydrated.problems);
       setDailyTargets(hydrated.dailyTargets);
       setStudySessions(hydrated.studySessions);
+      setMockTests(hydrated.mockTests);
       setSettings(hydrated.settings);
       applyThemeToDOM(hydrated.settings.theme);
     });
@@ -247,6 +275,97 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setStudySessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
       StorageService.saveStudySessions(next);
+      return next;
+    });
+  }, []);
+
+  // 5. Mock Tests System
+  const activeMockTest = useMemo(() => {
+    return mockTests.find((t) => t.status === 'IN_PROGRESS' || t.status === 'PAUSED') || null;
+  }, [mockTests]);
+
+  const saveOrUpdateMockTest = useCallback((test: MockTest) => {
+    setMockTests((prev) => {
+      const exists = prev.some((t) => t.id === test.id);
+      const next = exists ? prev.map((t) => (t.id === test.id ? test : t)) : [test, ...prev];
+      StorageService.saveMockTests(next);
+      return next;
+    });
+  }, []);
+
+  const startMockTestAction = useCallback((testId: string, startIndex: number = 0) => {
+    setMockTests((prev) => {
+      const target = prev.find((t) => t.id === testId);
+      if (!target) return prev;
+      const updated = startMockTest(target, startIndex);
+      const next = prev.map((t) => (t.id === testId ? updated : t));
+      StorageService.saveMockTests(next);
+      return next;
+    });
+  }, []);
+
+  const pauseMockTestAction = useCallback((testId: string) => {
+    setMockTests((prev) => {
+      const target = prev.find((t) => t.id === testId);
+      if (!target) return prev;
+      const updated = pauseMockTest(target);
+      const next = prev.map((t) => (t.id === testId ? updated : t));
+      StorageService.saveMockTests(next);
+      return next;
+    });
+  }, []);
+
+  const resumeMockTestAction = useCallback((testId: string) => {
+    setMockTests((prev) => {
+      const target = prev.find((t) => t.id === testId);
+      if (!target) return prev;
+      const updated = resumeMockTest(target);
+      const next = prev.map((t) => (t.id === testId ? updated : t));
+      StorageService.saveMockTests(next);
+      return next;
+    });
+  }, []);
+
+  const setActiveQuestionAction = useCallback((testId: string, questionIndex: number) => {
+    setMockTests((prev) => {
+      const target = prev.find((t) => t.id === testId);
+      if (!target) return prev;
+      const updated = setActiveQuestion(target, questionIndex);
+      const next = prev.map((t) => (t.id === testId ? updated : t));
+      StorageService.saveMockTests(next);
+      return next;
+    });
+  }, []);
+
+  const completeQuestionAction = useCallback(
+    (testId: string, questionIndex: number, assessment: MockQuestionSelfAssessment) => {
+      setMockTests((prev) => {
+        const target = prev.find((t) => t.id === testId);
+        if (!target) return prev;
+        const updated = completeQuestion(target, questionIndex, assessment);
+        const next = prev.map((t) => (t.id === testId ? updated : t));
+        StorageService.saveMockTests(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const finishMockTestAction = useCallback((testId: string) => {
+    setMockTests((prev) => {
+      const target = prev.find((t) => t.id === testId);
+      if (!target) return prev;
+      const updated = finishMockTest(target);
+      const next = prev.map((t) => (t.id === testId ? updated : t));
+      StorageService.saveMockTests(next);
+      return next;
+    });
+  }, []);
+
+  const deleteMockTestAction = useCallback((testId: string) => {
+    setMockTests((prev) => {
+      const next = prev.filter((t) => t.id !== testId);
+      StorageService.saveMockTests(next);
       return next;
     });
   }, []);
@@ -474,6 +593,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       resumeSessionById,
       endSessionById,
       deleteSessionById,
+      mockTests,
+      activeMockTest,
+      saveOrUpdateMockTest,
+      startMockTestAction,
+      pauseMockTestAction,
+      resumeMockTestAction,
+      setActiveQuestionAction,
+      completeQuestionAction,
+      finishMockTestAction,
+      deleteMockTestAction,
       todayMetrics,
       heatmapData,
       syncConfig,
@@ -514,6 +643,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       resumeSessionById,
       endSessionById,
       deleteSessionById,
+      mockTests,
+      activeMockTest,
+      saveOrUpdateMockTest,
+      startMockTestAction,
+      pauseMockTestAction,
+      resumeMockTestAction,
+      setActiveQuestionAction,
+      completeQuestionAction,
+      finishMockTestAction,
+      deleteMockTestAction,
       todayMetrics,
       heatmapData,
       syncConfig,

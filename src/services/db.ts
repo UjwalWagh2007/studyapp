@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'PersonalStudyOS_DB';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export const STORES = [
   'topics',
@@ -13,6 +13,7 @@ export const STORES = [
   'dailyTargets',
   'settings',
   'syncVault',
+  'mockTests',
 ] as const;
 
 export type StoreName = (typeof STORES)[number];

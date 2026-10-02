@@ -2,7 +2,7 @@
 // PERSONAL CODING & REVISION SYSTEM TYPES
 // ==========================================================================
 
-export type RoutePath = 'dashboard' | 'topics' | 'revision' | 'calendar' | 'sessions';
+export type RoutePath = 'dashboard' | 'topics' | 'revision' | 'calendar' | 'sessions' | 'mock-tests';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -172,6 +172,62 @@ export interface CalendarDayItem {
 }
 
 // ==========================================================================
+// MOCK TESTS DATA MODELS
+// ==========================================================================
+
+export type MockTestDay = 'SATURDAY' | 'SUNDAY';
+export type MockTestStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'PAUSED' | 'COMPLETED';
+export type MockQuestionSelfAssessment = 'SOLVED_INDEPENDENTLY' | 'NEEDED_HELP' | 'COULD_NOT_SOLVE';
+
+export interface MockTestQuestion {
+  problemId: string;
+  title: string;
+  topicName?: string;
+  difficulty: Difficulty;
+  pattern?: string;
+  link?: string;
+  order: number;
+  isCompleted: boolean;
+  assessment?: MockQuestionSelfAssessment;
+  timeSpentSeconds: number; // accumulated time on this question
+  startedAt?: string; // ISO timestamp
+  completedAt?: string; // ISO timestamp
+}
+
+export interface MockTest {
+  id: string; // e.g. "mock-2026-10-03-SATURDAY"
+  weekKey: string; // e.g. "2026-W40"
+  weekLabel: string; // e.g. "Week of Sep 28 – Oct 2, 2026"
+  testDay: MockTestDay;
+  scheduledDate: string; // YYYY-MM-DD
+  status: MockTestStatus;
+  questions: MockTestQuestion[];
+  currentQuestionIndex: number;
+  activeQuestionStartedAt?: string; // ISO timestamp if timer actively ticking
+  totalTimeSeconds: number;
+  score: number; // e.g. 8 (sum of question points)
+  maxScore: number; // e.g. 10
+  percentage: number; // e.g. 80
+  easyScore: number;
+  easyTotal: number;
+  mediumScore: number;
+  mediumTotal: number;
+  hardScore: number;
+  hardTotal: number;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MockTestTimeAnalytics {
+  totalTimeSeconds: number;
+  averageTimeSeconds: number;
+  fastestQuestion?: { title: string; seconds: number };
+  slowestQuestion?: { title: string; seconds: number };
+}
+
+// ==========================================================================
 // MULTI-DEVICE PERSISTENCE & SYNC TYPES
 // ==========================================================================
 
@@ -191,6 +247,7 @@ export interface SyncPayloadData {
   problems: Problem[];
   studySessions?: StudySession[];
   dailyTargets?: DailyTargetsConfig;
+  mockTests?: MockTest[];
   version: number;
   exportedAt: string;
 }
@@ -201,3 +258,4 @@ export interface SyncEnvelope {
   timestamp: string;
   data: SyncPayloadData;
 }
+

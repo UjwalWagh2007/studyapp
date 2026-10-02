@@ -9,6 +9,7 @@ import { TopicsPage } from '../../pages/TopicsPage';
 import { RevisionPage } from '../../pages/RevisionPage';
 import { CalendarPage } from '../../pages/CalendarPage';
 import { SessionsPage } from '../../pages/SessionsPage';
+import { MockTestsPage } from '../../pages/MockTestsPage';
 
 export const AppLayout: React.FC = () => {
   const { currentPath } = useAppStore();
@@ -25,6 +26,8 @@ export const AppLayout: React.FC = () => {
         return { title: 'Revision Calendar', component: <CalendarPage /> };
       case 'sessions':
         return { title: 'Study Sessions', component: <SessionsPage /> };
+      case 'mock-tests':
+        return { title: 'Weekly Mock Tests', component: <MockTestsPage /> };
       default:
         return { title: 'Dashboard', component: <DashboardPage /> };
     }

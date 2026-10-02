@@ -4,6 +4,7 @@ import type {
   UserSettings,
   DailyTargetsConfig,
   StudySession,
+  MockTest,
 } from '../types';
 import { dbGetAll, dbSetAll, dbGetSingleton, dbSetSingleton } from './db';
 import { DEFAULT_DAILY_TARGETS } from './metricsService';
@@ -13,10 +14,12 @@ const PROBLEMS_KEY = 'studyos_problems_v3';
 const SETTINGS_KEY = 'studyos_settings_v3';
 const TARGETS_KEY = 'studyos_targets_v3';
 const SESSIONS_KEY = 'studyos_sessions_v3';
+const MOCK_TESTS_KEY = 'studyos_mock_tests_v4';
 
 export const DEFAULT_TOPICS: Topic[] = [];
 export const DEFAULT_PROBLEMS: Problem[] = [];
 export const DEFAULT_SESSIONS: StudySession[] = [];
+export const DEFAULT_MOCK_TESTS: MockTest[] = [];
 
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: 'dark',
@@ -158,6 +161,28 @@ export const StorageService = {
     }
   },
 
+  getMockTests(): MockTest[] {
+    try {
+      if (typeof localStorage === 'undefined') return DEFAULT_MOCK_TESTS;
+      const raw = localStorage.getItem(MOCK_TESTS_KEY);
+      if (!raw) return DEFAULT_MOCK_TESTS;
+      return JSON.parse(raw);
+    } catch {
+      return DEFAULT_MOCK_TESTS;
+    }
+  },
+
+  saveMockTests(tests: MockTest[]): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(MOCK_TESTS_KEY, JSON.stringify(tests));
+      }
+      dbSetAll('mockTests', tests).catch(() => {});
+    } catch (err) {
+      console.error('Failed to save mock tests', err);
+    }
+  },
+
   getSettings(): UserSettings {
     try {
       if (typeof localStorage === 'undefined') return DEFAULT_SETTINGS;
@@ -188,15 +213,17 @@ export const StorageService = {
     problems: Problem[];
     studySessions: StudySession[];
     dailyTargets: DailyTargetsConfig;
+    mockTests: MockTest[];
     settings: UserSettings;
   }> {
     ensureStorageCleanMigration();
     try {
-      const [idbTopics, idbProblems, idbSessions, idbTargets, idbSettings] = await Promise.all([
+      const [idbTopics, idbProblems, idbSessions, idbTargets, idbMockTests, idbSettings] = await Promise.all([
         dbGetAll<Topic>('topics'),
         dbGetAll<Problem>('problems'),
         dbGetAll<StudySession>('studySessions'),
         dbGetSingleton<DailyTargetsConfig>('dailyTargets', 'config'),
+        dbGetAll<MockTest>('mockTests'),
         dbGetSingleton<UserSettings>('settings'),
       ]);
 
@@ -207,6 +234,7 @@ export const StorageService = {
       const problems = idbProblems.length > 0 ? idbProblems : this.getProblems();
       const studySessions = idbSessions.length > 0 ? idbSessions : this.getStudySessions();
       const dailyTargets = idbTargets || this.getDailyTargets();
+      const mockTests = idbMockTests.length > 0 ? idbMockTests : this.getMockTests();
       const settings = idbSettings || this.getSettings();
 
       // Mirror into localStorage
@@ -214,15 +242,17 @@ export const StorageService = {
       this.saveProblems(problems);
       this.saveStudySessions(studySessions);
       this.saveDailyTargets(dailyTargets);
+      this.saveMockTests(mockTests);
       this.saveSettings(settings);
 
-      return { topics, problems, studySessions, dailyTargets, settings };
+      return { topics, problems, studySessions, dailyTargets, mockTests, settings };
     } catch {
       return {
         topics: this.getTopics(),
         problems: this.getProblems(),
         studySessions: this.getStudySessions(),
         dailyTargets: this.getDailyTargets(),
+        mockTests: this.getMockTests(),
         settings: this.getSettings(),
       };
     }
@@ -235,9 +265,11 @@ export const StorageService = {
       localStorage.removeItem(SETTINGS_KEY);
       localStorage.removeItem(TARGETS_KEY);
       localStorage.removeItem(SESSIONS_KEY);
+      localStorage.removeItem(MOCK_TESTS_KEY);
     }
     dbSetAll('topics', []).catch(() => {});
     dbSetAll('problems', []).catch(() => {});
     dbSetAll('studySessions', []).catch(() => {});
+    dbSetAll('mockTests', []).catch(() => {});
   },
 };
