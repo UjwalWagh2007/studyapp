@@ -3,15 +3,13 @@ import type { Problem } from '../types';
 import {
   scheduleInitialLearning,
   calculateNextReview,
+  getNextLadderInterval,
   isProblemDue,
   isProblemOverdue,
   getDueToday,
   getOverdue,
   getUpcoming,
-  normalizeDate,
-  addDays,
-  daysBetween,
-  SR_CONSTANTS,
+  REVISION_INTERVAL_LADDER,
 } from './spacedRepetition';
 
 const createMockProblem = (overrides?: Partial<Problem>): Problem => ({
@@ -35,53 +33,106 @@ const createMockProblem = (overrides?: Partial<Problem>): Problem => ({
   ...overrides,
 });
 
-describe('Spaced Repetition Engine', () => {
+describe('Deterministic Spaced Repetition Pipeline (+1 → +3 → +7 → +14 → +30 → +60 → +120 → +180)', () => {
   const BASE_DATE = '2026-10-01';
 
-  describe('Date Utilities', () => {
-    it('normalizes Date objects and strings to YYYY-MM-DD', () => {
-      expect(normalizeDate(new Date(2026, 9, 1))).toBe('2026-10-01');
-      expect(normalizeDate('2026-10-01T15:30:00.000Z')).toBe('2026-10-01');
-      expect(normalizeDate('2026-10-01')).toBe('2026-10-01');
+  describe('Interval Ladder Constants & Helper', () => {
+    it('contains the exact intervals: 1, 3, 7, 14, 30, 60, 120, 180', () => {
+      expect(REVISION_INTERVAL_LADDER).toEqual([1, 3, 7, 14, 30, 60, 120, 180]);
     });
 
-    it('adds days correctly across month boundaries', () => {
-      expect(addDays('2026-10-01', 5)).toBe('2026-10-06');
-      expect(addDays('2026-10-30', 3)).toBe('2026-11-02');
+    it('advances 1 step correctly along the ladder', () => {
+      expect(getNextLadderInterval(1, 1)).toBe(3);
+      expect(getNextLadderInterval(3, 1)).toBe(7);
+      expect(getNextLadderInterval(7, 1)).toBe(14);
+      expect(getNextLadderInterval(14, 1)).toBe(30);
+      expect(getNextLadderInterval(30, 1)).toBe(60);
+      expect(getNextLadderInterval(60, 1)).toBe(120);
+      expect(getNextLadderInterval(120, 1)).toBe(180);
+      expect(getNextLadderInterval(180, 1)).toBe(180);
     });
 
-    it('calculates calendar days difference', () => {
-      expect(daysBetween('2026-10-01', '2026-10-06')).toBe(5);
+    it('advances 2 steps for EASY reviews', () => {
+      expect(getNextLadderInterval(1, 2)).toBe(7);
+      expect(getNextLadderInterval(3, 2)).toBe(14);
+      expect(getNextLadderInterval(7, 2)).toBe(30);
+      expect(getNextLadderInterval(14, 2)).toBe(60);
+      expect(getNextLadderInterval(30, 2)).toBe(120);
+      expect(getNextLadderInterval(60, 2)).toBe(180);
+      expect(getNextLadderInterval(120, 2)).toBe(180);
     });
   });
 
   describe('Initial Learning Schedule', () => {
-    it('schedules a new problem for review in 1 day', () => {
+    it('schedules a new problem for review in +1 day', () => {
       const p = createMockProblem();
       const scheduled = scheduleInitialLearning(p, BASE_DATE);
 
       expect(scheduled.status).toBe('LEARNING');
       expect(scheduled.currentIntervalDays).toBe(1);
       expect(scheduled.nextReviewAt).toBe('2026-10-02');
-      expect(scheduled.easeFactor).toBe(SR_CONSTANTS.DEFAULT_EASE_FACTOR);
+    });
+  });
+
+  describe('Sequential Stage Progression via GOOD Ratings', () => {
+    it('progresses sequentially: 1 -> 3 -> 7 -> 14 -> 30 -> 60 -> 120 -> 180', () => {
+      let p = scheduleInitialLearning(createMockProblem(), '2026-10-01');
+      expect(p.currentIntervalDays).toBe(1);
+
+      // Review 1 (Day 1): 1 -> 3
+      let res = calculateNextReview(p, 'GOOD', '2026-10-02');
+      p = res.updatedProblem;
+      expect(p.currentIntervalDays).toBe(3);
+      expect(p.nextReviewAt).toBe('2026-10-05');
+
+      // Review 2 (Day 4): 3 -> 7
+      res = calculateNextReview(p, 'GOOD', '2026-10-05');
+      p = res.updatedProblem;
+      expect(p.currentIntervalDays).toBe(7);
+      expect(p.nextReviewAt).toBe('2026-10-12');
+
+      // Review 3 (Day 11): 7 -> 14
+      res = calculateNextReview(p, 'GOOD', '2026-10-12');
+      p = res.updatedProblem;
+      expect(p.currentIntervalDays).toBe(14);
+      expect(p.nextReviewAt).toBe('2026-10-26');
+
+      // Review 4 (Day 25): 14 -> 30
+      res = calculateNextReview(p, 'GOOD', '2026-10-26');
+      p = res.updatedProblem;
+      expect(p.currentIntervalDays).toBe(30);
+
+      // Review 5 (Day 55): 30 -> 60
+      res = calculateNextReview(p, 'GOOD', '2026-11-25');
+      p = res.updatedProblem;
+      expect(p.currentIntervalDays).toBe(60);
+
+      // Review 6 (Day 115): 60 -> 120
+      res = calculateNextReview(p, 'GOOD', '2027-01-24');
+      p = res.updatedProblem;
+      expect(p.currentIntervalDays).toBe(120);
+
+      // Review 7 (Day 235): 120 -> 180
+      res = calculateNextReview(p, 'GOOD', '2027-05-24');
+      p = res.updatedProblem;
+      expect(p.currentIntervalDays).toBe(180);
+      expect(p.status).toBe('MASTERED');
     });
   });
 
   describe('Rating: AGAIN (Lapse)', () => {
-    it('resets interval to 1 day and drops ease factor', () => {
+    it('resets interval back to 1 day on lapse', () => {
       const p = createMockProblem({
-        currentIntervalDays: 14,
-        easeFactor: 2.5,
-        consecutiveSuccesses: 3,
-        reviewCount: 3,
-        successfulReviews: 3,
+        currentIntervalDays: 60,
+        consecutiveSuccesses: 5,
+        reviewCount: 5,
+        successfulReviews: 5,
       });
 
       const { updatedProblem, reviewLog } = calculateNextReview(p, 'AGAIN', BASE_DATE);
 
       expect(updatedProblem.currentIntervalDays).toBe(1);
       expect(updatedProblem.nextReviewAt).toBe('2026-10-02');
-      expect(updatedProblem.easeFactor).toBe(2.3);
       expect(updatedProblem.consecutiveSuccesses).toBe(0);
       expect(updatedProblem.failedReviews).toBe(1);
       expect(updatedProblem.status).toBe('LEARNING');
@@ -91,24 +142,18 @@ describe('Spaced Repetition Engine', () => {
     });
   });
 
-  describe('Rating: GOOD (Standard recall)', () => {
-    it('expands interval by ease factor and maintains ease factor', () => {
+  describe('Rating: HARD (Repeat stage)', () => {
+    it('repeats current interval stage without resetting completely', () => {
       const p = createMockProblem({
-        currentIntervalDays: 6,
-        easeFactor: 2.5,
-        consecutiveSuccesses: 2,
+        currentIntervalDays: 14,
+        consecutiveSuccesses: 3,
       });
 
-      const { updatedProblem, reviewLog } = calculateNextReview(p, 'GOOD', BASE_DATE);
+      const { updatedProblem, reviewLog } = calculateNextReview(p, 'HARD', BASE_DATE);
 
-      expect(updatedProblem.currentIntervalDays).toBe(15);
-      expect(updatedProblem.nextReviewAt).toBe('2026-10-16');
-      expect(updatedProblem.easeFactor).toBe(2.5);
-      expect(updatedProblem.consecutiveSuccesses).toBe(3);
-      expect(updatedProblem.status).toBe('REVIEWING');
-
-      expect(reviewLog.rating).toBe('GOOD');
-      expect(reviewLog.newInterval).toBe(15);
+      expect(updatedProblem.currentIntervalDays).toBe(14);
+      expect(updatedProblem.nextReviewAt).toBe('2026-10-15');
+      expect(reviewLog.rating).toBe('HARD');
     });
   });
 

@@ -1,16 +1,32 @@
 import type { Problem, ReviewRating, ReviewLog } from '../types';
 
 /**
- * SPACED REPETITION ENGINE CONSTANTS
- * Based on SuperMemo SM-2.
+ * DETERMINISTIC SPATIAL REPETITION INTERVAL LADDER:
+ * +1 → +3 → +7 → +14 → +30 → +60 → +120 → +180
  */
-export const SR_CONSTANTS = {
-  DEFAULT_EASE_FACTOR: 2.5,
-  MIN_EASE_FACTOR: 1.3,
-  MAX_EASE_FACTOR: 3.0,
-  MASTERY_INTERVAL_THRESHOLD: 21, // days
-  MASTERY_CONSECUTIVE_SUCCESSES_THRESHOLD: 3,
-};
+export const REVISION_INTERVAL_LADDER = [1, 3, 7, 14, 30, 60, 120, 180] as const;
+
+export function getNextLadderInterval(
+  currentInterval: number,
+  steps: number = 1
+): number {
+  let currentIndex = REVISION_INTERVAL_LADDER.findIndex((i) => i === currentInterval);
+  if (currentIndex === -1) {
+    // Find closest index
+    currentIndex = REVISION_INTERVAL_LADDER.reduce((closestIdx, val, idx, arr) => {
+      return Math.abs(val - currentInterval) < Math.abs(arr[closestIdx] - currentInterval)
+        ? idx
+        : closestIdx;
+    }, 0);
+  }
+
+  const targetIndex = Math.min(
+    REVISION_INTERVAL_LADDER.length - 1,
+    Math.max(0, currentIndex + steps)
+  );
+
+  return REVISION_INTERVAL_LADDER[targetIndex];
+}
 
 /**
  * Normalizes a Date or date string to standard YYYY-MM-DD format (local date)
@@ -72,7 +88,7 @@ export function daysBetween(fromDate: Date | string, toDate: Date | string): num
 
 /**
  * Initializes a new problem into the Spaced Repetition queue.
- * By default, schedules first revision for tomorrow (interval: 1 day).
+ * By default, schedules first revision for +1 day (tomorrow).
  */
 export function scheduleInitialLearning(
   problem: Problem,
@@ -81,14 +97,14 @@ export function scheduleInitialLearning(
   const refDate = referenceDate ? new Date(referenceDate) : new Date();
   const refDateStr = normalizeDate(refDate);
 
-  const initialInterval = 1;
+  const initialInterval = 1; // Stage 0: +1 day
   const nextDate = addDays(refDateStr, initialInterval);
 
   return {
     ...problem,
     nextReviewAt: nextDate,
     currentIntervalDays: initialInterval,
-    easeFactor: problem.easeFactor || SR_CONSTANTS.DEFAULT_EASE_FACTOR,
+    easeFactor: 2.5,
     reviewCount: problem.reviewCount || 0,
     consecutiveSuccesses: 0,
     successfulReviews: 0,
@@ -100,13 +116,14 @@ export function scheduleInitialLearning(
 }
 
 /**
- * Calculates next interval, ease factor, and status based on review rating.
- * 
+ * Calculates next interval following the pipeline:
+ * +1 → +3 → +7 → +14 → +30 → +60 → +120 → +180
+ *
  * Ratings:
- * - AGAIN: Total recall lapse -> Ease Factor decreases, interval resets to 1 day.
- * - HARD: Recalled with difficulty -> Small interval bump (1.2x), ease decreases slightly.
- * - GOOD: Standard recall -> Interval expands by (Interval * EF).
- * - EASY: Effortless recall -> Interval expands by (Interval * EF * 1.3), ease increases.
+ * - AGAIN: Reset to stage 0 (+1 day).
+ * - HARD: Repeat current interval stage.
+ * - GOOD: Advance 1 stage in the ladder (+1 → +3 → +7 → +14 → +30 → +60 → +120 → +180).
+ * - EASY: Advance 2 stages in the ladder (e.g. +1 → +7, +3 → +14, +7 → +30, etc.).
  */
 export function calculateNextReview(
   problem: Problem,
@@ -117,15 +134,13 @@ export function calculateNextReview(
   const reviewDate = reviewDateInput ? new Date(reviewDateInput) : new Date();
   const reviewDateNorm = normalizeDate(reviewDate);
 
-  const prevInterval = problem.currentIntervalDays ?? 0;
-  const prevEF = Number(problem.easeFactor ?? SR_CONSTANTS.DEFAULT_EASE_FACTOR);
+  const prevInterval = problem.currentIntervalDays ?? 1;
   const prevConsecutive = Number(problem.consecutiveSuccesses ?? 0);
   const prevReviewCount = Number(problem.reviewCount ?? 0);
   const prevSuccessful = Number(problem.successfulReviews ?? 0);
   const prevFailed = Number(problem.failedReviews ?? 0);
 
   let newInterval: number;
-  let newEF: number = prevEF;
   let newConsecutive: number = prevConsecutive;
   let newSuccessful: number = prevSuccessful;
   let newFailed: number = prevFailed;
@@ -133,7 +148,7 @@ export function calculateNextReview(
 
   switch (rating) {
     case 'AGAIN': {
-      newEF = Math.max(SR_CONSTANTS.MIN_EASE_FACTOR, Number((prevEF - 0.2).toFixed(2)));
+      // Reset back to +1 day
       newInterval = 1;
       newConsecutive = 0;
       newFailed = prevFailed + 1;
@@ -142,64 +157,29 @@ export function calculateNextReview(
     }
 
     case 'HARD': {
-      newEF = Math.max(SR_CONSTANTS.MIN_EASE_FACTOR, Number((prevEF - 0.15).toFixed(2)));
+      // Repeat current interval stage
+      newInterval = prevInterval;
       newConsecutive = prevConsecutive + 1;
       newSuccessful = prevSuccessful + 1;
-
-      if (prevConsecutive === 0 || prevInterval <= 1) {
-        newInterval = 2;
-      } else {
-        newInterval = Math.max(prevInterval + 1, Math.round(prevInterval * 1.2));
-      }
-      newStatus = 'REVIEWING';
+      newStatus = newInterval >= 120 ? 'MASTERED' : newInterval >= 14 ? 'REVIEWING' : 'LEARNING';
       break;
     }
 
     case 'GOOD': {
-      newEF = Math.max(
-        SR_CONSTANTS.MIN_EASE_FACTOR,
-        Math.min(SR_CONSTANTS.MAX_EASE_FACTOR, Number(prevEF.toFixed(2)))
-      );
+      // Advance 1 stage in ladder (+1 → +3 → +7 → +14 → +30 → +60 → +120 → +180)
+      newInterval = getNextLadderInterval(prevInterval, 1);
       newConsecutive = prevConsecutive + 1;
       newSuccessful = prevSuccessful + 1;
-
-      if (newConsecutive === 1) {
-        newInterval = prevInterval <= 1 ? 3 : Math.max(prevInterval + 1, Math.round(prevInterval * 1.5));
-      } else if (newConsecutive === 2) {
-        newInterval = Math.max(6, Math.round(prevInterval * newEF));
-      } else {
-        newInterval = Math.max(prevInterval + 1, Math.round(prevInterval * newEF));
-      }
-
-      if (
-        newInterval >= SR_CONSTANTS.MASTERY_INTERVAL_THRESHOLD &&
-        newConsecutive >= SR_CONSTANTS.MASTERY_CONSECUTIVE_SUCCESSES_THRESHOLD
-      ) {
-        newStatus = 'MASTERED';
-      } else {
-        newStatus = 'REVIEWING';
-      }
+      newStatus = newInterval >= 120 ? 'MASTERED' : newInterval >= 14 ? 'REVIEWING' : 'LEARNING';
       break;
     }
 
     case 'EASY': {
-      newEF = Math.min(SR_CONSTANTS.MAX_EASE_FACTOR, Number((prevEF + 0.15).toFixed(2)));
+      // Advance 2 stages in ladder
+      newInterval = getNextLadderInterval(prevInterval, 2);
       newConsecutive = prevConsecutive + 1;
       newSuccessful = prevSuccessful + 1;
-
-      if (newConsecutive === 1) {
-        newInterval = prevInterval <= 1 ? 4 : Math.max(4, Math.round(prevInterval * 2));
-      } else if (newConsecutive === 2) {
-        newInterval = Math.max(9, Math.round(prevInterval * newEF * 1.3));
-      } else {
-        newInterval = Math.max(prevInterval + 2, Math.round(prevInterval * newEF * 1.3));
-      }
-
-      if (newInterval >= SR_CONSTANTS.MASTERY_INTERVAL_THRESHOLD && newConsecutive >= 2) {
-        newStatus = 'MASTERED';
-      } else {
-        newStatus = 'REVIEWING';
-      }
+      newStatus = newInterval >= 60 ? 'MASTERED' : 'REVIEWING';
       break;
     }
   }
@@ -213,8 +193,6 @@ export function calculateNextReview(
     rating,
     previousInterval: prevInterval,
     newInterval,
-    previousEaseFactor: prevEF,
-    newEaseFactor: newEF,
     timeSpentSeconds: options?.timeSpentSeconds,
     notes: options?.notes,
   };
@@ -224,7 +202,6 @@ export function calculateNextReview(
     lastReviewedAt: reviewDate.toISOString(),
     nextReviewAt: nextReviewDate,
     currentIntervalDays: newInterval,
-    easeFactor: newEF,
     reviewCount: prevReviewCount + 1,
     successfulReviews: newSuccessful,
     failedReviews: newFailed,

@@ -13,6 +13,7 @@ import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useAppStore } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
+import { getNextLadderInterval } from '../services/spacedRepetition';
 import type { Problem, Difficulty, ReviewRating } from '../types';
 
 export const RevisionPage: React.FC = () => {
@@ -218,7 +219,7 @@ export const RevisionPage: React.FC = () => {
                         onClick={() => handleRate(problem, 'AGAIN')}
                       >
                         <span style={{ fontWeight: 700, fontSize: '13px' }}>Again</span>
-                        <span style={{ fontSize: '11px', opacity: 0.85 }}>Forgot (1d)</span>
+                        <span style={{ fontSize: '11px', opacity: 0.85 }}>Reset (+1d)</span>
                       </button>
 
                       <button
@@ -237,7 +238,9 @@ export const RevisionPage: React.FC = () => {
                         onClick={() => handleRate(problem, 'HARD')}
                       >
                         <span style={{ fontWeight: 700, fontSize: '13px' }}>Hard</span>
-                        <span style={{ fontSize: '11px', opacity: 0.85 }}>High effort</span>
+                        <span style={{ fontSize: '11px', opacity: 0.85 }}>
+                          Repeat (+{problem.currentIntervalDays}d)
+                        </span>
                       </button>
 
                       <button
@@ -256,7 +259,9 @@ export const RevisionPage: React.FC = () => {
                         onClick={() => handleRate(problem, 'GOOD')}
                       >
                         <span style={{ fontWeight: 700, fontSize: '13px' }}>Good</span>
-                        <span style={{ fontSize: '11px', opacity: 0.85 }}>Standard recall</span>
+                        <span style={{ fontSize: '11px', opacity: 0.85 }}>
+                          Next (+{getNextLadderInterval(problem.currentIntervalDays, 1)}d)
+                        </span>
                       </button>
 
                       <button
@@ -275,7 +280,9 @@ export const RevisionPage: React.FC = () => {
                         onClick={() => handleRate(problem, 'EASY')}
                       >
                         <span style={{ fontWeight: 700, fontSize: '13px' }}>Easy</span>
-                        <span style={{ fontSize: '11px', opacity: 0.85 }}>Effortless</span>
+                        <span style={{ fontSize: '11px', opacity: 0.85 }}>
+                          Jump (+{getNextLadderInterval(problem.currentIntervalDays, 2)}d)
+                        </span>
                       </button>
                     </div>
                   </div>
