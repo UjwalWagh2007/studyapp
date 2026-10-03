@@ -15,6 +15,7 @@ const SETTINGS_KEY = 'studyos_settings_v3';
 const TARGETS_KEY = 'studyos_targets_v3';
 const SESSIONS_KEY = 'studyos_sessions_v3';
 const MOCK_TESTS_KEY = 'studyos_mock_tests_v4';
+const DELETED_IDS_KEY = 'studyos_deleted_ids_v4';
 
 export const DEFAULT_TOPICS: Topic[] = [];
 export const DEFAULT_PROBLEMS: Problem[] = [];
@@ -62,15 +63,47 @@ export function ensureStorageCleanMigration(): void {
 }
 
 export const StorageService = {
+  getDeletedIds(): string[] {
+    try {
+      if (typeof localStorage === 'undefined') return [];
+      const raw = localStorage.getItem(DELETED_IDS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  recordDeletedId(id: string): void {
+    if (!id) return;
+    try {
+      const current = this.getDeletedIds();
+      if (!current.includes(id)) {
+        const next = [id, ...current].slice(0, 300); // keep recent 300 tombstones
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(next));
+        }
+      }
+    } catch {}
+  },
+
+  setDeletedIds(ids: string[]): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(ids.slice(0, 300)));
+      }
+    } catch {}
+  },
+
   getTopics(): Topic[] {
     try {
       if (typeof localStorage === 'undefined') return DEFAULT_TOPICS;
       const raw = localStorage.getItem(TOPICS_KEY);
       if (!raw) return DEFAULT_TOPICS;
       const parsed: Topic[] = JSON.parse(raw);
-      return parsed.sort(
-        (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
-      );
+      const deleted = new Set(this.getDeletedIds());
+      return parsed
+        .filter((t) => !deleted.has(t.id))
+        .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
     } catch {
       return DEFAULT_TOPICS;
     }
@@ -93,14 +126,17 @@ export const StorageService = {
       const raw = localStorage.getItem(PROBLEMS_KEY);
       if (!raw) return DEFAULT_PROBLEMS;
       const parsed: Problem[] = JSON.parse(raw);
-      return parsed.map((p) => ({
-        ...p,
-        reviewCount: p.reviewCount ?? 0,
-        currentIntervalDays: p.currentIntervalDays ?? 1,
-        easeFactor: p.easeFactor ?? 2.5,
-        reviewHistory: p.reviewHistory ?? [],
-        status: p.status ?? 'LEARNING',
-      }));
+      const deleted = new Set(this.getDeletedIds());
+      return parsed
+        .filter((p) => !deleted.has(p.id))
+        .map((p) => ({
+          ...p,
+          reviewCount: p.reviewCount ?? 0,
+          currentIntervalDays: p.currentIntervalDays ?? 1,
+          easeFactor: p.easeFactor ?? 2.5,
+          reviewHistory: p.reviewHistory ?? [],
+          status: p.status ?? 'LEARNING',
+        }));
     } catch {
       return DEFAULT_PROBLEMS;
     }
@@ -144,7 +180,9 @@ export const StorageService = {
       if (typeof localStorage === 'undefined') return DEFAULT_SESSIONS;
       const raw = localStorage.getItem(SESSIONS_KEY);
       if (!raw) return DEFAULT_SESSIONS;
-      return JSON.parse(raw);
+      const parsed: StudySession[] = JSON.parse(raw);
+      const deleted = new Set(this.getDeletedIds());
+      return parsed.filter((s) => !deleted.has(s.id));
     } catch {
       return DEFAULT_SESSIONS;
     }
@@ -166,7 +204,9 @@ export const StorageService = {
       if (typeof localStorage === 'undefined') return DEFAULT_MOCK_TESTS;
       const raw = localStorage.getItem(MOCK_TESTS_KEY);
       if (!raw) return DEFAULT_MOCK_TESTS;
-      return JSON.parse(raw);
+      const parsed: MockTest[] = JSON.parse(raw);
+      const deleted = new Set(this.getDeletedIds());
+      return parsed.filter((m) => !deleted.has(m.id));
     } catch {
       return DEFAULT_MOCK_TESTS;
     }
@@ -227,14 +267,15 @@ export const StorageService = {
         dbGetSingleton<UserSettings>('settings'),
       ]);
 
-      const rawTopics = idbTopics.length > 0 ? idbTopics : this.getTopics();
+      const deleted = new Set(this.getDeletedIds());
+      const rawTopics = (idbTopics.length > 0 ? idbTopics : this.getTopics()).filter((t) => !deleted.has(t.id));
       const topics = [...rawTopics].sort(
         (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
       );
-      const problems = idbProblems.length > 0 ? idbProblems : this.getProblems();
-      const studySessions = idbSessions.length > 0 ? idbSessions : this.getStudySessions();
+      const problems = (idbProblems.length > 0 ? idbProblems : this.getProblems()).filter((p) => !deleted.has(p.id));
+      const studySessions = (idbSessions.length > 0 ? idbSessions : this.getStudySessions()).filter((s) => !deleted.has(s.id));
       const dailyTargets = idbTargets || this.getDailyTargets();
-      const mockTests = idbMockTests.length > 0 ? idbMockTests : this.getMockTests();
+      const mockTests = (idbMockTests.length > 0 ? idbMockTests : this.getMockTests()).filter((m) => !deleted.has(m.id));
       const settings = idbSettings || this.getSettings();
 
       // Mirror into localStorage
@@ -266,6 +307,7 @@ export const StorageService = {
       localStorage.removeItem(TARGETS_KEY);
       localStorage.removeItem(SESSIONS_KEY);
       localStorage.removeItem(MOCK_TESTS_KEY);
+      localStorage.removeItem(DELETED_IDS_KEY);
     }
     dbSetAll('topics', []).catch(() => {});
     dbSetAll('problems', []).catch(() => {});
@@ -273,3 +315,4 @@ export const StorageService = {
     dbSetAll('mockTests', []).catch(() => {});
   },
 };
+

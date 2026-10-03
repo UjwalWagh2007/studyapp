@@ -10,7 +10,10 @@ import {
   CheckCircle2,
   Smartphone,
   Laptop,
+  Check,
+  Share2,
 } from 'lucide-react';
+
 import { useAppStore } from '../../context/AppContext';
 import { IconButton } from '../ui/IconButton';
 import { Badge } from '../ui/Badge';
@@ -33,6 +36,15 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
   } = useAppStore();
 
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleCopyLink = () => {
+    if (typeof window === 'undefined') return;
+    navigator.clipboard.writeText(window.location.origin + window.location.pathname).then(() => {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    });
+  };
 
   return (
     <>
@@ -65,7 +77,7 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
                 : 'synced'
             }`}
             onClick={() => setIsSyncModalOpen(true)}
-            title="Cloud Sync Status"
+            title="Real-Time Cloud Sync"
             aria-label="Cloud sync status"
           >
             {!isOnline || syncStatus === 'OFFLINE' ? (
@@ -86,7 +98,7 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
             ) : (
               <>
                 <Cloud size={12} />
-                <span className="badge-text-full">Synced</span>
+                <span className="badge-text-full">Live Synced</span>
               </>
             )}
           </button>
@@ -121,8 +133,8 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
       <Modal
         isOpen={isSyncModalOpen}
         onClose={() => setIsSyncModalOpen(false)}
-        title="Personal Study Cloud Sync"
-        subtitle="Automatic universal synchronization across all your devices."
+        title="Universal Real-Time Cloud Sync"
+        subtitle="Automatic 2-way synchronization across all your phones, laptops & tablets."
         icon={<Cloud size={20} color="var(--color-primary)" />}
         size="md"
       >
@@ -132,14 +144,14 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
               <CheckCircle2 size={20} color="var(--color-success)" />
               <div>
                 <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-success)' }}>
-                  Universal Sync Active
+                  Universal Real-Time Sync Active
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                   {!isOnline
-                    ? 'Currently Offline — all changes saved locally and will sync when reconnected.'
+                    ? 'Currently Offline — all changes saved locally and will auto-sync when reconnected.'
                     : syncStatus === 'SYNCING'
                     ? 'Syncing changes in real time...'
-                    : 'Your workspace is up to date and shared across all devices.'}
+                    : '100% in sync. Any change on any device updates seamlessly.'}
                 </div>
               </div>
             </div>
@@ -147,14 +159,26 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
 
           <div className="workspace-section">
             <div className="workspace-section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Laptop size={15} /> <Smartphone size={15} /> One Seamless Workspace
+              <Laptop size={15} /> <Smartphone size={15} /> One Seamless Shared Workspace
             </div>
             <div className="workspace-section-desc">
-              Opening this link on your phone, laptop, or tablet connects directly to this exact study dataset. All topics, problems, SRS intervals, study sessions, and mock tests are synced automatically without passwords or pairing codes.
+              Opening this link on your phone, laptop, or tablet connects directly to this exact study workspace. Topics, problems, SRS spaced repetition intervals, study sessions, and mock tests are synced automatically without passwords or passkeys.
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleCopyLink}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                {copiedLink ? <Check size={14} color="var(--color-success)" /> : <Share2 size={14} />}
+                {copiedLink ? 'Link Copied to Clipboard!' : 'Copy Link for Phone / Other Device'}
+              </Button>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
               Status: <strong>{!isOnline ? 'Offline' : syncStatus === 'SYNCING' ? 'Syncing...' : 'Connected & Synced'}</strong>
             </div>
@@ -173,5 +197,6 @@ export const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
     </>
   );
 };
+
 
 

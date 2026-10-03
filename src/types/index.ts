@@ -248,6 +248,7 @@ export interface SyncPayloadData {
   studySessions?: StudySession[];
   dailyTargets?: DailyTargetsConfig;
   mockTests?: MockTest[];
+  deletedIds?: string[];
   version: number;
   exportedAt: string;
 }
@@ -258,4 +259,5 @@ export interface SyncEnvelope {
   timestamp: string;
   data: SyncPayloadData;
 }
+
 

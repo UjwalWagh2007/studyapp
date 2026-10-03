@@ -1,29 +1,32 @@
 // Vercel Serverless Function — Multi-Device Sync Endpoint
-// Persistent Cloud Storage with Conflict-Safe Timestamp Merging
+// Persistent Cloud Storage with Conflict-Safe Timestamp Merging & Deletion Tracking
 
 export const config = {
   runtime: 'nodejs',
 };
 
 const CLOUD_STORAGE_API = 'https://api.restful-api.dev/objects';
+const DEFAULT_MASTER_OBJECT_ID = 'ff808181a09d98f701a0ffdfab106797';
 
 const UPSTASH_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
-function cleanCloudId(vaultId: string): string {
-  return vaultId.replace(/^ws_/i, '').trim();
+function cleanCloudId(vaultId?: string | null): string {
+  if (!vaultId) return DEFAULT_MASTER_OBJECT_ID;
+  const cleaned = vaultId.replace(/^ws_/i, '').trim();
+  return cleaned || DEFAULT_MASTER_OBJECT_ID;
 }
 
 // --------------------------------------------------------------------------
 // Cloud Persistence Core
 // --------------------------------------------------------------------------
-async function fetchCloudVault(vaultId: string): Promise<{ timestamp: string; data: any } | null> {
+async function fetchCloudVault(vaultId?: string | null): Promise<{ timestamp: string; data: any } | null> {
   const cleanId = cleanCloudId(vaultId);
 
   // 1. Try Upstash / Vercel KV if configured
   if (UPSTASH_URL && UPSTASH_TOKEN) {
     try {
-      const res = await fetch(`${UPSTASH_URL}/get/studyos_${encodeURIComponent(vaultId)}`, {
+      const res = await fetch(`${UPSTASH_URL}/get/studyos_${encodeURIComponent(cleanId)}`, {
         headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
       });
       if (res.ok) {
@@ -71,7 +74,7 @@ async function persistCloudVault(
   // 1. Try Upstash / Vercel KV if configured
   if (UPSTASH_URL && UPSTASH_TOKEN) {
     try {
-      await fetch(`${UPSTASH_URL}/set/studyos_${encodeURIComponent(vaultId)}`, {
+      await fetch(`${UPSTASH_URL}/set/studyos_${encodeURIComponent(cleanId)}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${UPSTASH_TOKEN}`,
@@ -86,12 +89,11 @@ async function persistCloudVault(
 
   // 2. Persist to Cloud REST storage
   try {
-    // Try updating existing object first
     const putRes = await fetch(`${CLOUD_STORAGE_API}/${cleanId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: `STUDY_VAULT_${vaultId}`,
+        name: `STUDY_VAULT_${cleanId}`,
         data: {
           timestamp: payload.timestamp,
           payload: payload.data,
@@ -100,15 +102,31 @@ async function persistCloudVault(
     });
 
     if (putRes.ok) {
-      return vaultId;
+      return `ws_${cleanId}`;
     }
 
-    // If PUT 404s (new vault), create new object
+    // Try PATCH if PUT fails
+    const patchRes = await fetch(`${CLOUD_STORAGE_API}/${cleanId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        data: {
+          timestamp: payload.timestamp,
+          payload: payload.data,
+        },
+      }),
+    });
+
+    if (patchRes.ok) {
+      return `ws_${cleanId}`;
+    }
+
+    // If PUT & PATCH fail, try creating new object
     const postRes = await fetch(CLOUD_STORAGE_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: `STUDY_VAULT_${vaultId}`,
+        name: `STUDY_VAULT_${cleanId}`,
         data: {
           timestamp: payload.timestamp,
           payload: payload.data,
@@ -126,19 +144,24 @@ async function persistCloudVault(
     console.warn('[CloudSync] Cloud storage persist error:', e);
   }
 
-  return vaultId;
+
+  return `ws_${cleanId}`;
 }
 
 // --------------------------------------------------------------------------
 // Server-side Conflict-Safe Merge Helpers
 // --------------------------------------------------------------------------
-function mergeEntitiesByTimestamp(local: any[] = [], remote: any[] = []): any[] {
+function mergeEntitiesByTimestamp(local: any[] = [], remote: any[] = [], deletedSet: Set<string>): any[] {
   const map = new Map<string, any>();
+
   local.forEach((item) => {
-    if (item?.id) map.set(item.id, item);
+    if (item?.id && !deletedSet.has(item.id)) {
+      map.set(item.id, item);
+    }
   });
+
   remote.forEach((item) => {
-    if (!item?.id) return;
+    if (!item?.id || deletedSet.has(item.id)) return;
     const existing = map.get(item.id);
     if (!existing) {
       map.set(item.id, item);
@@ -150,16 +173,21 @@ function mergeEntitiesByTimestamp(local: any[] = [], remote: any[] = []): any[] 
       }
     }
   });
+
   return Array.from(map.values());
 }
 
-function mergeProblemsWithHistory(local: any[] = [], remote: any[] = []): any[] {
+function mergeProblemsWithHistory(local: any[] = [], remote: any[] = [], deletedSet: Set<string>): any[] {
   const map = new Map<string, any>();
+
   local.forEach((p) => {
-    if (p?.id) map.set(p.id, p);
+    if (p?.id && !deletedSet.has(p.id)) {
+      map.set(p.id, p);
+    }
   });
+
   remote.forEach((remoteP) => {
-    if (!remoteP?.id) return;
+    if (!remoteP?.id || deletedSet.has(remoteP.id)) return;
     const localP = map.get(remoteP.id);
     if (!localP) {
       map.set(remoteP.id, remoteP);
@@ -183,6 +211,7 @@ function mergeProblemsWithHistory(local: any[] = [], remote: any[] = []): any[] 
       });
     }
   });
+
   return Array.from(map.values());
 }
 
@@ -190,12 +219,18 @@ function serverMergePayloads(existing: any, incoming: any): any {
   if (!existing) return incoming;
   if (!incoming) return existing;
 
+  const deletedList = Array.from(
+    new Set([...(existing.deletedIds || []), ...(incoming.deletedIds || [])])
+  ).slice(0, 300);
+  const deletedSet = new Set(deletedList);
+
   return {
-    topics: mergeEntitiesByTimestamp(existing.topics || [], incoming.topics || []),
-    problems: mergeProblemsWithHistory(existing.problems || [], incoming.problems || []),
-    studySessions: mergeEntitiesByTimestamp(existing.studySessions || [], incoming.studySessions || []),
-    mockTests: mergeEntitiesByTimestamp(existing.mockTests || [], incoming.mockTests || []),
+    topics: mergeEntitiesByTimestamp(incoming.topics || [], existing.topics || [], deletedSet),
+    problems: mergeProblemsWithHistory(incoming.problems || [], existing.problems || [], deletedSet),
+    studySessions: mergeEntitiesByTimestamp(incoming.studySessions || [], existing.studySessions || [], deletedSet),
+    mockTests: mergeEntitiesByTimestamp(incoming.mockTests || [], existing.mockTests || [], deletedSet),
     dailyTargets: incoming.dailyTargets || existing.dailyTargets,
+    deletedIds: deletedList,
     version: Math.max(existing.version || 1, incoming.version || 1),
     exportedAt: new Date().toISOString(),
   };
@@ -212,15 +247,12 @@ export default async function handler(req: any, res: any) {
   }
 
   const rawVault = req.headers['x-sync-vault'] || req.query.vaultId || req.query.ws;
-  const vaultId = typeof rawVault === 'string' ? rawVault.trim() : null;
+  const vaultId = typeof rawVault === 'string' && rawVault.trim() ? rawVault.trim() : `ws_${DEFAULT_MASTER_OBJECT_ID}`;
 
   if (req.method === 'GET') {
-    if (!vaultId) {
-      return res.status(400).json({ error: 'Missing x-sync-vault identifier' });
-    }
     try {
       const stored = await fetchCloudVault(vaultId);
-      if (!stored) {
+      if (!stored || !stored.data) {
         return res.status(200).json({
           vaultId,
           timestamp: new Date().toISOString(),
@@ -241,22 +273,28 @@ export default async function handler(req: any, res: any) {
     try {
       const envelope = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       const incomingData = envelope?.data;
-      const effectiveVaultId = vaultId || envelope?.vaultId;
+      const isPullOnly = envelope?.action === 'PULL' || !incomingData;
+      const effectiveVaultId = vaultId || envelope?.vaultId || `ws_${DEFAULT_MASTER_OBJECT_ID}`;
 
-      if (!incomingData) {
-        return res.status(400).json({ error: 'Invalid sync envelope payload' });
+      // If client only requested a pull or has empty incoming data on fresh device:
+      if (isPullOnly) {
+        const existingRecord = await fetchCloudVault(effectiveVaultId);
+        return res.status(200).json({
+          success: true,
+          vaultId: effectiveVaultId,
+          timestamp: existingRecord?.timestamp || new Date().toISOString(),
+          data: existingRecord?.data || null,
+        });
       }
 
       let mergedData = incomingData;
-      if (effectiveVaultId) {
-        const existingRecord = await fetchCloudVault(effectiveVaultId);
-        if (existingRecord?.data) {
-          mergedData = serverMergePayloads(existingRecord.data, incomingData);
-        }
+      const existingRecord = await fetchCloudVault(effectiveVaultId);
+      if (existingRecord?.data) {
+        mergedData = serverMergePayloads(existingRecord.data, incomingData);
       }
 
       const timestamp = new Date().toISOString();
-      const activeVaultId = await persistCloudVault(effectiveVaultId || 'new', { timestamp, data: mergedData });
+      const activeVaultId = await persistCloudVault(effectiveVaultId, { timestamp, data: mergedData });
 
       return res.status(200).json({
         success: true,
@@ -271,4 +309,3 @@ export default async function handler(req: any, res: any) {
 
   return res.status(405).json({ error: 'Method not allowed' });
 }
-

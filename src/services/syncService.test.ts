@@ -227,7 +227,42 @@ describe('Multi-Device Sync Service', () => {
       expect(merged.dailyTargets?.studyMinutesTarget).toBe(120);
       expect(merged.dailyTargets?.problemsTarget).toBe(4);
     });
+
+    it('respects deletion tombstones when merging', () => {
+      const topic1: Topic = {
+        id: 'top-to-delete',
+        name: 'Deleted Topic',
+        createdAt: '2026-10-01T10:00:00.000Z',
+        updatedAt: '2026-10-01T10:00:00.000Z',
+      };
+
+      const topic2: Topic = {
+        id: 'top-kept',
+        name: 'Kept Topic',
+        createdAt: '2026-10-01T10:00:00.000Z',
+        updatedAt: '2026-10-01T10:00:00.000Z',
+      };
+
+      const local: SyncPayloadData = {
+        ...basePayload,
+        topics: [topic2],
+        deletedIds: ['top-to-delete'],
+      };
+
+      const remote: SyncPayloadData = {
+        ...basePayload,
+        topics: [topic1, topic2],
+        deletedIds: [],
+      };
+
+      const merged = mergeSyncPayloadData(local, remote);
+      expect(merged.topics.length).toBe(1);
+      expect(merged.topics[0].id).toBe('top-kept');
+      expect(merged.deletedIds).toContain('top-to-delete');
+    });
   });
 });
+
+
 
 

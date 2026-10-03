@@ -1,6 +1,6 @@
 /**
  * MULTI-DEVICE SYNC & CONFLICT-SAFE MERGE ENGINE
- * Personal Workspace Cross-Device Persistence (Topics, Problems, Sessions, Mock Tests, Targets)
+ * Universal Zero-Config Cross-Device Persistence (Topics, Problems, Sessions, Mock Tests, Targets)
  */
 
 import type {
@@ -17,7 +17,8 @@ import { dbSetSingleton } from './db';
 
 const SYNC_CONFIG_KEY = 'studyos_sync_config_v4';
 
-export const DEFAULT_PERSONAL_WORKSPACE_ID = 'ws_ff808181a09d98f701a0fc866f2f6133';
+// Master Shared Workspace ID (Zero-config across all devices and links)
+export const DEFAULT_PERSONAL_WORKSPACE_ID = 'ws_ff808181a09d98f701a0ffdfab106797';
 
 export function generateSyncVaultId(): string {
   return DEFAULT_PERSONAL_WORKSPACE_ID;
@@ -69,6 +70,37 @@ export function getPairingUrl(_vaultId?: string): string {
   return window.location.origin;
 }
 
+// --------------------------------------------------------------------------
+// Cross-Tab Instant Sync (Same Browser)
+// --------------------------------------------------------------------------
+let crossTabChannel: BroadcastChannel | null = null;
+try {
+  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    crossTabChannel = new BroadcastChannel('studyos_cross_tab_sync_v4');
+  }
+} catch {}
+
+export function broadcastLocalChange(payload: SyncPayloadData): void {
+  if (crossTabChannel) {
+    try {
+      crossTabChannel.postMessage({ type: 'WORKSPACE_SYNC', payload });
+    } catch {}
+  }
+}
+
+export function onBroadcastSync(callback: (payload: SyncPayloadData) => void): () => void {
+  if (!crossTabChannel) return () => {};
+  const handler = (event: MessageEvent) => {
+    if (event.data?.type === 'WORKSPACE_SYNC' && event.data?.payload) {
+      callback(event.data.payload);
+    }
+  };
+  crossTabChannel.addEventListener('message', handler);
+  return () => {
+    crossTabChannel?.removeEventListener('message', handler);
+  };
+}
+
 let memorySyncConfig: DeviceSyncConfig | null = null;
 
 export function getDeviceSyncConfig(): DeviceSyncConfig {
@@ -102,7 +134,7 @@ export function getDeviceSyncConfig(): DeviceSyncConfig {
     secretKey: generateDeviceSecretKey(),
     deviceName: getClientDeviceName(),
     isSyncEnabled: true,
-    autoSyncIntervalSeconds: 20,
+    autoSyncIntervalSeconds: 4,
   };
 
   memorySyncConfig = initialConfig;
@@ -129,22 +161,24 @@ export function saveDeviceSyncConfig(config: DeviceSyncConfig): void {
   }
 }
 
-
 // --------------------------------------------------------------------------
-// Conflict-Safe Merge Helpers
+// Conflict-Safe & Deletion-Aware Merge Helpers
 // --------------------------------------------------------------------------
 export function mergeEntitiesByTimestamp<T extends { id: string; updatedAt?: string; createdAt?: string }>(
   local: T[] = [],
-  remote: T[] = []
+  remote: T[] = [],
+  deletedSet: Set<string> = new Set()
 ): T[] {
   const map = new Map<string, T>();
 
   local.forEach((item) => {
-    if (item?.id) map.set(item.id, item);
+    if (item?.id && !deletedSet.has(item.id)) {
+      map.set(item.id, item);
+    }
   });
 
   remote.forEach((remoteItem) => {
-    if (!remoteItem?.id) return;
+    if (!remoteItem?.id || deletedSet.has(remoteItem.id)) return;
     const localItem = map.get(remoteItem.id);
     if (!localItem) {
       map.set(remoteItem.id, remoteItem);
@@ -161,15 +195,21 @@ export function mergeEntitiesByTimestamp<T extends { id: string; updatedAt?: str
   return Array.from(map.values());
 }
 
-export function mergeProblems(local: Problem[] = [], remote: Problem[] = []): Problem[] {
+export function mergeProblems(
+  local: Problem[] = [],
+  remote: Problem[] = [],
+  deletedSet: Set<string> = new Set()
+): Problem[] {
   const map = new Map<string, Problem>();
 
   local.forEach((p) => {
-    if (p?.id) map.set(p.id, p);
+    if (p?.id && !deletedSet.has(p.id)) {
+      map.set(p.id, p);
+    }
   });
 
   remote.forEach((remoteP) => {
-    if (!remoteP?.id) return;
+    if (!remoteP?.id || deletedSet.has(remoteP.id)) return;
     const localP = map.get(remoteP.id);
     if (!localP) {
       map.set(remoteP.id, remoteP);
@@ -209,12 +249,22 @@ export function mergeSyncPayloadData(
   local: SyncPayloadData,
   remote: SyncPayloadData
 ): SyncPayloadData {
+  const combinedDeleted = Array.from(
+    new Set([...(local.deletedIds || []), ...(remote.deletedIds || [])])
+  ).slice(0, 300);
+  const deletedSet = new Set(combinedDeleted);
+
   return {
-    topics: mergeEntitiesByTimestamp<Topic>(local.topics || [], remote.topics || []),
-    problems: mergeProblems(local.problems || [], remote.problems || []),
-    studySessions: mergeEntitiesByTimestamp<StudySession>(local.studySessions || [], remote.studySessions || []),
-    mockTests: mergeEntitiesByTimestamp<MockTest>(local.mockTests || [], remote.mockTests || []),
+    topics: mergeEntitiesByTimestamp<Topic>(local.topics || [], remote.topics || [], deletedSet),
+    problems: mergeProblems(local.problems || [], remote.problems || [], deletedSet),
+    studySessions: mergeEntitiesByTimestamp<StudySession>(
+      local.studySessions || [],
+      remote.studySessions || [],
+      deletedSet
+    ),
+    mockTests: mergeEntitiesByTimestamp<MockTest>(local.mockTests || [], remote.mockTests || [], deletedSet),
     dailyTargets: remote.dailyTargets || local.dailyTargets,
+    deletedIds: combinedDeleted,
     version: Math.max(local.version || 1, remote.version || 1),
     exportedAt: new Date().toISOString(),
   };
@@ -227,12 +277,14 @@ export function captureCurrentSyncPayload(): SyncPayloadData {
     studySessions: StorageService.getStudySessions(),
     dailyTargets: StorageService.getDailyTargets(),
     mockTests: StorageService.getMockTests(),
+    deletedIds: StorageService.getDeletedIds(),
     version: 4,
     exportedAt: new Date().toISOString(),
   };
 }
 
 export function applyMergedSyncPayload(merged: SyncPayloadData): void {
+  if (merged.deletedIds) StorageService.setDeletedIds(merged.deletedIds);
   if (merged.topics) StorageService.saveTopics(merged.topics);
   if (merged.problems) StorageService.saveProblems(merged.problems);
   if (merged.studySessions) StorageService.saveStudySessions(merged.studySessions);
@@ -243,7 +295,8 @@ export function applyMergedSyncPayload(merged: SyncPayloadData): void {
 const CLOUD_STORAGE_API = 'https://api.restful-api.dev/objects';
 
 function cleanCloudId(vaultId: string): string {
-  return vaultId.replace(/^ws_/i, '').trim();
+  const cleaned = vaultId.replace(/^ws_/i, '').trim();
+  return cleaned || 'ff808181a09d98f701a0ffdfab106797';
 }
 
 // --------------------------------------------------------------------------
@@ -267,6 +320,12 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
   }
 
   const localPayload = captureCurrentSyncPayload();
+  const isLocalFreshOrEmpty =
+    localPayload.topics.length === 0 &&
+    localPayload.problems.length === 0 &&
+    (localPayload.studySessions || []).length === 0 &&
+    (localPayload.mockTests || []).length === 0;
+
   const envelope: SyncEnvelope = {
     vaultId: activeVaultId,
     deviceId: config.secretKey.slice(0, 8),
@@ -283,14 +342,20 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
         'x-sync-vault': activeVaultId,
         'x-sync-secret': config.secretKey,
       },
-      body: JSON.stringify(envelope),
+      body: JSON.stringify(isLocalFreshOrEmpty ? { action: 'PULL', vaultId: activeVaultId } : envelope),
     });
 
     if (res.ok) {
       const json = await res.json();
       if (json.data) {
-        const merged = mergeSyncPayloadData(localPayload, json.data);
-        applyMergedSyncPayload(merged);
+        let merged: SyncPayloadData;
+        if (isLocalFreshOrEmpty) {
+          merged = json.data;
+          applyMergedSyncPayload(merged);
+        } else {
+          merged = mergeSyncPayloadData(localPayload, json.data);
+          applyMergedSyncPayload(merged);
+        }
 
         if (json.vaultId && json.vaultId !== config.vaultId) {
           config.vaultId = json.vaultId;
@@ -309,7 +374,7 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
     console.warn('[SyncService] /api/sync endpoint notice:', apiErr);
   }
 
-  // 2. Client-side Direct Cloud Storage Engine (Universal Fallback)
+  // 2. Client-side Direct Cloud Storage Engine (Universal Resilient Fallback)
   try {
     const cleanId = cleanCloudId(activeVaultId);
 
@@ -324,22 +389,49 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
     } catch {}
 
     if (remotePayload) {
+      if (isLocalFreshOrEmpty) {
+        // Fresh device: adopt remote dataset directly!
+        applyMergedSyncPayload(remotePayload);
+        config.lastSuccessfulSyncAt = new Date().toISOString();
+        if (overrideVaultId) {
+          config.vaultId = overrideVaultId;
+          config.isSyncEnabled = true;
+        }
+        saveDeviceSyncConfig(config);
+        return { success: true, mergedData: remotePayload };
+      }
+
       // Merge remote with local changes
       const merged = mergeSyncPayloadData(localPayload, remotePayload);
       applyMergedSyncPayload(merged);
 
-      // Persist merged data back to the cloud
-      await fetch(`${CLOUD_STORAGE_API}/${cleanId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: `STUDY_VAULT_${activeVaultId}`,
-          data: {
-            timestamp: new Date().toISOString(),
-            payload: merged,
-          },
-        }),
-      });
+      // Persist merged data back to the cloud (PUT with PATCH fallback)
+      try {
+        const putRes = await fetch(`${CLOUD_STORAGE_API}/${cleanId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: `STUDY_VAULT_${activeVaultId}`,
+            data: {
+              timestamp: new Date().toISOString(),
+              payload: merged,
+            },
+          }),
+        });
+
+        if (!putRes.ok) {
+          await fetch(`${CLOUD_STORAGE_API}/${cleanId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              data: {
+                timestamp: new Date().toISOString(),
+                payload: merged,
+              },
+            }),
+          });
+        }
+      } catch {}
 
       config.lastSuccessfulSyncAt = new Date().toISOString();
       if (overrideVaultId) {
@@ -349,8 +441,9 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
       saveDeviceSyncConfig(config);
 
       return { success: true, mergedData: merged };
+
     } else {
-      // Create new cloud vault
+      // Create or update cloud vault
       const postRes = await fetch(CLOUD_STORAGE_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -393,4 +486,3 @@ export async function fetchRemoteWorkspace(vaultId: string): Promise<{
 }> {
   return syncWithCloud(vaultId);
 }
-

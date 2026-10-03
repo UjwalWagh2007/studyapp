@@ -46,7 +46,11 @@ import {
   getDeviceSyncConfig,
   saveDeviceSyncConfig,
   syncWithCloud,
+  broadcastLocalChange,
+  onBroadcastSync,
+  captureCurrentSyncPayload,
 } from '../services/syncService';
+
 
 interface AppContextValue {
   // Navigation & Layout
@@ -243,17 +247,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       setTimeout(() => {
         setSyncStatus((current) => (current === 'SYNCING' || current === 'SUCCESS' ? 'IDLE' : current));
-      }, 3000);
+      }, 2000);
     }
   }, [syncConfig.isSyncEnabled]);
 
   const scheduleAutoSync = useCallback(() => {
+    // 1. Instant Cross-Tab Broadcast (0ms)
+    broadcastLocalChange(captureCurrentSyncPayload());
+
+    // 2. Debounced Cloud Push (350ms)
     if (syncDebounceRef.current) {
       clearTimeout(syncDebounceRef.current);
     }
     syncDebounceRef.current = setTimeout(() => {
       triggerCloudSync();
-    }, 1200);
+    }, 350);
   }, [triggerCloudSync]);
 
   const updateSyncConfig = useCallback((updates: Partial<DeviceSyncConfig>) => {
@@ -265,7 +273,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const connectWorkspace = useCallback(async (newVaultId: string): Promise<boolean> => {
-    const cleanId = newVaultId.trim().toUpperCase();
+    const cleanId = newVaultId.trim();
     if (!cleanId) return false;
     setSyncStatus('SYNCING');
     try {
@@ -290,7 +298,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [syncConfig]);
 
-  // Hydrate from IndexedDB on startup & trigger initial sync
+  // Listen for Cross-Tab instant sync events
+  useEffect(() => {
+    const unsubscribe = onBroadcastSync((payload) => {
+      if (payload.topics) setTopics(payload.topics);
+      if (payload.problems) setProblems(payload.problems);
+      if (payload.studySessions) setStudySessions(payload.studySessions);
+      if (payload.dailyTargets) setDailyTargets(payload.dailyTargets);
+      if (payload.mockTests) setMockTests(payload.mockTests);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Hydrate from IndexedDB on startup & trigger initial cloud pull
   useEffect(() => {
     StorageService.hydrateFromIndexedDB().then((hydrated) => {
       setTopics(hydrated.topics);
@@ -301,7 +321,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSettings(hydrated.settings);
       applyThemeToDOM(hydrated.settings.theme);
 
-      // Perform initial cloud sync & workspace check
+      // Perform initial cloud sync & pull latest cloud state
       triggerCloudSync();
     });
   }, [applyThemeToDOM, triggerCloudSync]);
@@ -327,7 +347,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [triggerCloudSync]);
 
-  // Window focus & visibility listeners (pull latest changes when switching tabs/apps)
+  // Window focus & visibility listeners (pull latest changes immediately when switching back to tab/app)
   useEffect(() => {
     const handleVisibilityOrFocus = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
@@ -344,18 +364,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [triggerCloudSync]);
 
-  // Periodic background sync interval
+  // Fast background sync interval (every 3.5s when active tab is online)
   useEffect(() => {
     if (!syncConfig.isSyncEnabled) return;
-    const intervalTime = Math.max(15, syncConfig.autoSyncIntervalSeconds || 20) * 1000;
+    const intervalTime = Math.max(3, syncConfig.autoSyncIntervalSeconds || 4) * 1000;
     const interval = setInterval(() => {
-      if (typeof navigator !== 'undefined' && navigator.onLine) {
+      if (typeof navigator !== 'undefined' && navigator.onLine && document.visibilityState === 'visible') {
         triggerCloudSync();
       }
     }, intervalTime);
 
     return () => clearInterval(interval);
   }, [syncConfig.isSyncEnabled, syncConfig.autoSyncIntervalSeconds, triggerCloudSync]);
+
 
   // Target update
   const updateDailyTargets = useCallback((updates: Partial<DailyTargetsConfig>) => {
@@ -415,6 +436,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [scheduleAutoSync]);
 
   const deleteSessionById = useCallback((id: string) => {
+    StorageService.recordDeletedId(id);
     setStudySessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
       StorageService.saveStudySessions(next);
@@ -514,6 +536,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [scheduleAutoSync]);
 
   const deleteMockTestAction = useCallback((testId: string) => {
+    StorageService.recordDeletedId(testId);
     setMockTests((prev) => {
       const next = prev.filter((t) => t.id !== testId);
       StorageService.saveMockTests(next);
@@ -562,6 +585,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [scheduleAutoSync]);
 
   const deleteTopic = useCallback((id: string) => {
+    StorageService.recordDeletedId(id);
     setTopics((prev) => {
       const next = prev.filter((t) => t.id !== id);
       StorageService.saveTopics(next);
@@ -636,6 +660,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [topics, scheduleAutoSync]);
 
   const deleteProblem = useCallback((id: string) => {
+    StorageService.recordDeletedId(id);
     setProblems((prev) => {
       const next = prev.filter((p) => p.id !== id);
       StorageService.saveProblems(next);
@@ -643,6 +668,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     scheduleAutoSync();
   }, [scheduleAutoSync]);
+
 
   // Spaced Repetition Reviews
   const recordReview = useCallback(
