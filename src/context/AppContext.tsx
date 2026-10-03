@@ -588,6 +588,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteTopic = useCallback((id: string) => {
     StorageService.recordDeletedId(id);
+    problems
+      .filter((p) => p.topicId === id)
+      .forEach((p) => StorageService.recordDeletedId(p.id));
+
     setTopics((prev) => {
       const next = prev.filter((t) => t.id !== id);
       StorageService.saveTopics(next);
@@ -604,7 +608,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSelectedTopicId(null);
     }
     scheduleAutoSync();
-  }, [selectedTopicId, scheduleAutoSync]);
+  }, [selectedTopicId, problems, scheduleAutoSync]);
+
 
   // Problem CRUD
   const addProblem = useCallback((input: CreateProblemInput): Problem => {
