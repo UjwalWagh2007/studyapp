@@ -49,6 +49,8 @@ import {
   broadcastLocalChange,
   onBroadcastSync,
   captureCurrentSyncPayload,
+  publishRealtimeSync,
+  subscribeRealtimeSync,
 } from '../services/syncService';
 
 
@@ -253,16 +255,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [syncConfig.isSyncEnabled]);
 
   const scheduleAutoSync = useCallback(() => {
-    // 1. Instant Cross-Tab Broadcast (0ms)
-    broadcastLocalChange(captureCurrentSyncPayload());
+    const payload = captureCurrentSyncPayload();
 
-    // 2. Debounced Cloud Push (400ms)
+    // 1. Instant Cross-Tab Broadcast (0ms)
+    broadcastLocalChange(payload);
+
+    // 2. Real-Time Sub-Second Cross-Device Push (<1s)
+    publishRealtimeSync(payload);
+
+    // 3. Debounced Persistent Cloud Sync (300ms)
     if (syncDebounceRef.current) {
       clearTimeout(syncDebounceRef.current);
     }
     syncDebounceRef.current = setTimeout(() => {
       triggerCloudSync();
-    }, 400);
+    }, 300);
   }, [triggerCloudSync]);
 
 
@@ -301,7 +308,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [syncConfig]);
 
-  // Listen for Cross-Tab instant sync events
+  // Real-Time Sub-Second Cross-Device Sync (<1s across phone & laptop)
+  useEffect(() => {
+    if (!syncConfig.isSyncEnabled) return;
+    const unsubscribe = subscribeRealtimeSync(syncConfig.vaultId, (payload) => {
+      const deletedSet = new Set(StorageService.getDeletedIds());
+      if (payload.topics) setTopics(payload.topics.filter((t) => !deletedSet.has(t.id)));
+      if (payload.problems) setProblems(payload.problems.filter((p) => !deletedSet.has(p.id)));
+      if (payload.studySessions) setStudySessions(payload.studySessions.filter((s) => !deletedSet.has(s.id)));
+      if (payload.dailyTargets) setDailyTargets(payload.dailyTargets);
+      if (payload.mockTests) setMockTests(payload.mockTests.filter((m) => !deletedSet.has(m.id)));
+      setSyncStatus('SUCCESS');
+      setTimeout(() => {
+        setSyncStatus((c) => (c === 'SUCCESS' ? 'IDLE' : c));
+      }, 1500);
+    });
+    return unsubscribe;
+  }, [syncConfig.isSyncEnabled, syncConfig.vaultId]);
+
+  // Listen for Cross-Tab instant sync events (same browser)
   useEffect(() => {
     const unsubscribe = onBroadcastSync((payload) => {
       const deletedSet = new Set(StorageService.getDeletedIds());
@@ -368,10 +393,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [triggerCloudSync]);
 
-  // Background sync interval (every 20s when active tab is online)
+  // Background heartbeat sync interval (every 5s when active tab is online)
   useEffect(() => {
     if (!syncConfig.isSyncEnabled) return;
-    const intervalTime = Math.max(15, syncConfig.autoSyncIntervalSeconds || 20) * 1000;
+    const intervalTime = Math.max(5, syncConfig.autoSyncIntervalSeconds || 5) * 1000;
     const interval = setInterval(() => {
       if (typeof navigator !== 'undefined' && navigator.onLine && document.visibilityState === 'visible') {
         triggerCloudSync();
