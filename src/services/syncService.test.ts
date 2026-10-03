@@ -5,7 +5,9 @@ import {
   getDeviceSyncConfig,
   saveDeviceSyncConfig,
   mergeSyncPayloadData,
+  applyMergedSyncPayload,
 } from './syncService';
+import { StorageService } from './storage';
 import type { SyncPayloadData, Problem, Topic, StudySession, MockTest, DailyTargetsConfig } from '../types';
 
 describe('Multi-Device Sync Service', () => {
@@ -259,6 +261,37 @@ describe('Multi-Device Sync Service', () => {
       expect(merged.topics.length).toBe(1);
       expect(merged.topics[0].id).toBe('top-kept');
       expect(merged.deletedIds).toContain('top-to-delete');
+    });
+
+    it('filters out deleted items when applying merged sync payload to storage', () => {
+      const topic1: Topic = {
+        id: 'top-deleted-123',
+        name: 'Should Be Deleted',
+        createdAt: '2026-10-01T10:00:00.000Z',
+        updatedAt: '2026-10-01T10:00:00.000Z',
+      };
+
+      const topic2: Topic = {
+        id: 'top-persisted-456',
+        name: 'Active Topic',
+        createdAt: '2026-10-01T10:00:00.000Z',
+        updatedAt: '2026-10-01T10:00:00.000Z',
+      };
+
+      applyMergedSyncPayload({
+        topics: [topic1, topic2],
+        problems: [],
+        studySessions: [],
+        mockTests: [],
+        deletedIds: ['top-deleted-123'],
+        version: 4,
+        exportedAt: new Date().toISOString(),
+      });
+
+      const loadedTopics = StorageService.getTopics();
+      expect(loadedTopics.length).toBe(1);
+      expect(loadedTopics[0].id).toBe('top-persisted-456');
+      expect(StorageService.isInitialized()).toBe(true);
     });
   });
 });

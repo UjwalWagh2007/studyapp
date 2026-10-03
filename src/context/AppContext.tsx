@@ -233,11 +233,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (res.success) {
         setSyncStatus('SUCCESS');
         if (res.mergedData) {
-          if (res.mergedData.topics) setTopics(res.mergedData.topics);
-          if (res.mergedData.problems) setProblems(res.mergedData.problems);
-          if (res.mergedData.studySessions) setStudySessions(res.mergedData.studySessions);
+          const deletedSet = new Set(StorageService.getDeletedIds());
+          if (res.mergedData.topics) setTopics(res.mergedData.topics.filter((t) => !deletedSet.has(t.id)));
+          if (res.mergedData.problems) setProblems(res.mergedData.problems.filter((p) => !deletedSet.has(p.id)));
+          if (res.mergedData.studySessions) setStudySessions(res.mergedData.studySessions.filter((s) => !deletedSet.has(s.id)));
           if (res.mergedData.dailyTargets) setDailyTargets(res.mergedData.dailyTargets);
-          if (res.mergedData.mockTests) setMockTests(res.mergedData.mockTests);
+          if (res.mergedData.mockTests) setMockTests(res.mergedData.mockTests.filter((m) => !deletedSet.has(m.id)));
         }
       } else {
         setSyncStatus(navigator.onLine ? 'ERROR' : 'OFFLINE');
@@ -284,11 +285,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveDeviceSyncConfig(nextConfig);
 
       if (res.success && res.mergedData) {
-        if (res.mergedData.topics) setTopics(res.mergedData.topics);
-        if (res.mergedData.problems) setProblems(res.mergedData.problems);
-        if (res.mergedData.studySessions) setStudySessions(res.mergedData.studySessions);
+        const deletedSet = new Set(StorageService.getDeletedIds());
+        if (res.mergedData.topics) setTopics(res.mergedData.topics.filter((t) => !deletedSet.has(t.id)));
+        if (res.mergedData.problems) setProblems(res.mergedData.problems.filter((p) => !deletedSet.has(p.id)));
+        if (res.mergedData.studySessions) setStudySessions(res.mergedData.studySessions.filter((s) => !deletedSet.has(s.id)));
         if (res.mergedData.dailyTargets) setDailyTargets(res.mergedData.dailyTargets);
-        if (res.mergedData.mockTests) setMockTests(res.mergedData.mockTests);
+        if (res.mergedData.mockTests) setMockTests(res.mergedData.mockTests.filter((m) => !deletedSet.has(m.id)));
       }
       setSyncStatus('SUCCESS');
       return true;
@@ -302,11 +304,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Listen for Cross-Tab instant sync events
   useEffect(() => {
     const unsubscribe = onBroadcastSync((payload) => {
-      if (payload.topics) setTopics(payload.topics);
-      if (payload.problems) setProblems(payload.problems);
-      if (payload.studySessions) setStudySessions(payload.studySessions);
+      const deletedSet = new Set(StorageService.getDeletedIds());
+      if (payload.topics) setTopics(payload.topics.filter((t) => !deletedSet.has(t.id)));
+      if (payload.problems) setProblems(payload.problems.filter((p) => !deletedSet.has(p.id)));
+      if (payload.studySessions) setStudySessions(payload.studySessions.filter((s) => !deletedSet.has(s.id)));
       if (payload.dailyTargets) setDailyTargets(payload.dailyTargets);
-      if (payload.mockTests) setMockTests(payload.mockTests);
+      if (payload.mockTests) setMockTests(payload.mockTests.filter((m) => !deletedSet.has(m.id)));
     });
     return unsubscribe;
   }, []);

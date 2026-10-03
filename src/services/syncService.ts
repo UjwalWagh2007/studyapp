@@ -288,15 +288,72 @@ export function captureCurrentSyncPayload(): SyncPayloadData {
 }
 
 export function applyMergedSyncPayload(merged: SyncPayloadData): void {
-  if (merged.deletedIds) StorageService.setDeletedIds(merged.deletedIds);
-  if (merged.topics) StorageService.saveTopics(merged.topics);
-  if (merged.problems) StorageService.saveProblems(merged.problems);
-  if (merged.studySessions) StorageService.saveStudySessions(merged.studySessions);
-  if (merged.dailyTargets) StorageService.saveDailyTargets(merged.dailyTargets);
-  if (merged.mockTests) StorageService.saveMockTests(merged.mockTests);
+  const localDeleted = StorageService.getDeletedIds();
+  const remoteDeleted = merged.deletedIds || [];
+  const combinedDeleted = Array.from(new Set([...localDeleted, ...remoteDeleted])).slice(0, 500);
+  StorageService.setDeletedIds(combinedDeleted);
+  StorageService.setInitialized();
+
+  const deletedSet = new Set(combinedDeleted);
+
+  if (merged.topics) {
+    StorageService.saveTopics(merged.topics.filter((t) => !deletedSet.has(t.id)));
+  }
+  if (merged.problems) {
+    StorageService.saveProblems(merged.problems.filter((p) => !deletedSet.has(p.id)));
+  }
+  if (merged.studySessions) {
+    StorageService.saveStudySessions(merged.studySessions.filter((s) => !deletedSet.has(s.id)));
+  }
+  if (merged.dailyTargets) {
+    StorageService.saveDailyTargets(merged.dailyTargets);
+  }
+  if (merged.mockTests) {
+    StorageService.saveMockTests(merged.mockTests.filter((m) => !deletedSet.has(m.id)));
+  }
 }
 
-const PRIMARY_CLOUD_URL = 'https://crudcrud.com/api/1b777a0c954a4186b6916374c50643f7/vault/6ac081dcfef4c903e8055860';
+let activeCloudVaultUrl = 'https://crudcrud.com/api/baf9e4d1a6974f3f8784bcb31bcfdb63/vault/6ac0859aac1fb503e88e23fc';
+
+async function fetchOrHealCloudVault(): Promise<{ url: string; payload: SyncPayloadData | null }> {
+  try {
+    const res = await fetch(activeCloudVaultUrl);
+    if (res.ok) {
+      const item = await res.json();
+      const payload = item?.payload || item?.data?.payload || item;
+      return { url: activeCloudVaultUrl, payload };
+    }
+  } catch {}
+
+  // Auto-heal: create fresh endpoint if expired
+  try {
+    const homeRes = await fetch('https://crudcrud.com');
+    if (homeRes.ok) {
+      const html = await homeRes.text();
+      const match = html.match(/api\/([a-f0-9]{32})/);
+      if (match) {
+        const endpoint = match[1];
+        const postRes = await fetch(`https://crudcrud.com/api/${endpoint}/vault`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            timestamp: new Date().toISOString(),
+            payload: captureCurrentSyncPayload(),
+          }),
+        });
+        if (postRes.ok) {
+          const created = await postRes.json();
+          if (created?._id) {
+            activeCloudVaultUrl = `https://crudcrud.com/api/${endpoint}/vault/${created._id}`;
+            return { url: activeCloudVaultUrl, payload: created.payload };
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return { url: activeCloudVaultUrl, payload: null };
+}
 
 // --------------------------------------------------------------------------
 // Cloud Synchronization Core Function
@@ -320,11 +377,16 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
   }
 
   const localPayload = captureCurrentSyncPayload();
-  const isLocalFreshOrEmpty =
-    localPayload.topics.length === 0 &&
-    localPayload.problems.length === 0 &&
-    (localPayload.studySessions || []).length === 0 &&
-    (localPayload.mockTests || []).length === 0;
+  const isClientAlreadyInitialized = StorageService.isInitialized();
+  const hasLocalDeletedTombstones = (localPayload.deletedIds || []).length > 0;
+  const hasAnyLocalEntities =
+    (localPayload.topics || []).length > 0 ||
+    (localPayload.problems || []).length > 0 ||
+    (localPayload.studySessions || []).length > 0 ||
+    (localPayload.mockTests || []).length > 0;
+
+  // A device is ONLY fresh if it has never been initialized, has no tombstones, and has no entities.
+  const isLocalFreshClient = !isClientAlreadyInitialized && !hasLocalDeletedTombstones && !hasAnyLocalEntities;
 
   const envelope: SyncEnvelope = {
     vaultId: activeVaultId,
@@ -342,14 +404,14 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
         'x-sync-vault': activeVaultId,
         'x-sync-secret': config.secretKey,
       },
-      body: JSON.stringify(isLocalFreshOrEmpty ? { action: 'PULL', vaultId: activeVaultId } : envelope),
+      body: JSON.stringify(isLocalFreshClient ? { action: 'PULL', vaultId: activeVaultId } : envelope),
     });
 
     if (res.ok) {
       const json = await res.json();
       if (json.data) {
         let merged: SyncPayloadData;
-        if (isLocalFreshOrEmpty) {
+        if (isLocalFreshClient) {
           merged = json.data;
           applyMergedSyncPayload(merged);
         } else {
@@ -374,19 +436,12 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
     console.warn('[SyncService] /api/sync endpoint notice:', apiErr);
   }
 
-  // 2. Direct High-Speed Cloud Store
+  // 2. Direct High-Speed Cloud Store with Auto-Healing
   try {
-    let remotePayload: SyncPayloadData | null = null;
-    try {
-      const getRes = await fetch(PRIMARY_CLOUD_URL);
-      if (getRes.ok) {
-        const item = await getRes.json();
-        remotePayload = item?.payload || item?.data?.payload || item;
-      }
-    } catch {}
+    const { url, payload: remotePayload } = await fetchOrHealCloudVault();
 
-    if (remotePayload && (remotePayload.topics || remotePayload.problems || remotePayload.studySessions)) {
-      if (isLocalFreshOrEmpty) {
+    if (remotePayload && (remotePayload.topics || remotePayload.problems || remotePayload.studySessions || (remotePayload.deletedIds && remotePayload.deletedIds.length > 0))) {
+      if (isLocalFreshClient) {
         applyMergedSyncPayload(remotePayload);
         config.lastSuccessfulSyncAt = new Date().toISOString();
         if (overrideVaultId) {
@@ -401,7 +456,7 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
       applyMergedSyncPayload(merged);
 
       try {
-        await fetch(PRIMARY_CLOUD_URL, {
+        await fetch(url, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -421,7 +476,7 @@ export async function syncWithCloud(overrideVaultId?: string): Promise<{
       return { success: true, mergedData: merged };
     } else {
       try {
-        await fetch(PRIMARY_CLOUD_URL, {
+        await fetch(url, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

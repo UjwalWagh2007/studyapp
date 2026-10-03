@@ -5,7 +5,7 @@ export const config = {
   runtime: 'nodejs',
 };
 
-const PRIMARY_CLOUD_URL = 'https://crudcrud.com/api/1b777a0c954a4186b6916374c50643f7/vault/6ac081dcfef4c903e8055860';
+let PRIMARY_CLOUD_URL = 'https://crudcrud.com/api/baf9e4d1a6974f3f8784bcb31bcfdb63/vault/6ac0859aac1fb503e88e23fc';
 const FALLBACK_RESTFUL_API = 'https://api.restful-api.dev/objects/ff808181a09d98f701a0ffdfab106797';
 
 const UPSTASH_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
@@ -38,10 +38,10 @@ async function fetchCloudVault(_vaultId?: string | null): Promise<{ timestamp: s
     const res = await fetch(PRIMARY_CLOUD_URL);
     if (res.ok) {
       const item = await res.json();
-      if (item?.payload) {
+      if (item?.payload || item?.data) {
         return {
           timestamp: item.timestamp || new Date().toISOString(),
-          data: item.payload,
+          data: item.payload || item.data,
         };
       }
     }
@@ -49,7 +49,37 @@ async function fetchCloudVault(_vaultId?: string | null): Promise<{ timestamp: s
     console.warn('[CloudSync] Primary cloud fetch error:', e);
   }
 
-  // 3. Try Secondary Fallback Store
+  // 3. Auto-heal Primary Cloud JSON Store if needed
+  try {
+    const homeRes = await fetch('https://crudcrud.com');
+    if (homeRes.ok) {
+      const text = await homeRes.text();
+      const match = text.match(/api\/([a-f0-9]{32})/);
+      if (match) {
+        const endpoint = match[1];
+        const postRes = await fetch(`https://crudcrud.com/api/${endpoint}/vault`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            timestamp: new Date().toISOString(),
+            payload: { topics: [], problems: [], studySessions: [], mockTests: [], deletedIds: [] },
+          }),
+        });
+        if (postRes.ok) {
+          const created = await postRes.json();
+          if (created?._id) {
+            PRIMARY_CLOUD_URL = `https://crudcrud.com/api/${endpoint}/vault/${created._id}`;
+            return {
+              timestamp: created.timestamp,
+              data: created.payload,
+            };
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 4. Try Secondary Fallback Store
   try {
     const res = await fetch(FALLBACK_RESTFUL_API);
     if (res.ok) {

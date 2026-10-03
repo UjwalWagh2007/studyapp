@@ -16,6 +16,7 @@ const TARGETS_KEY = 'studyos_targets_v3';
 const SESSIONS_KEY = 'studyos_sessions_v3';
 const MOCK_TESTS_KEY = 'studyos_mock_tests_v4';
 const DELETED_IDS_KEY = 'studyos_deleted_ids_v4';
+const INITIALIZED_KEY = 'studyos_initialized_v4';
 
 export const DEFAULT_TOPICS: Topic[] = [];
 export const DEFAULT_PROBLEMS: Problem[] = [];
@@ -62,11 +63,47 @@ export function ensureStorageCleanMigration(): void {
   } catch {}
 }
 
+const memoryStorage = new Map<string, string>();
+
+function getItem(key: string): string | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(key);
+    }
+  } catch {}
+  return memoryStorage.get(key) ?? null;
+}
+
+function setItem(key: string, value: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, value);
+    }
+  } catch {}
+  memoryStorage.set(key, value);
+}
+
+function removeItem(key: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(key);
+    }
+  } catch {}
+  memoryStorage.delete(key);
+}
+
 export const StorageService = {
+  isInitialized(): boolean {
+    return getItem(INITIALIZED_KEY) === 'true';
+  },
+
+  setInitialized(): void {
+    setItem(INITIALIZED_KEY, 'true');
+  },
+
   getDeletedIds(): string[] {
     try {
-      if (typeof localStorage === 'undefined') return [];
-      const raw = localStorage.getItem(DELETED_IDS_KEY);
+      const raw = getItem(DELETED_IDS_KEY);
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
@@ -76,28 +113,24 @@ export const StorageService = {
   recordDeletedId(id: string): void {
     if (!id) return;
     try {
+      this.setInitialized();
       const current = this.getDeletedIds();
       if (!current.includes(id)) {
-        const next = [id, ...current].slice(0, 300); // keep recent 300 tombstones
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(next));
-        }
+        const next = [id, ...current].slice(0, 500); // keep recent 500 tombstones
+        setItem(DELETED_IDS_KEY, JSON.stringify(next));
       }
     } catch {}
   },
 
   setDeletedIds(ids: string[]): void {
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(ids.slice(0, 300)));
-      }
+      setItem(DELETED_IDS_KEY, JSON.stringify(ids.slice(0, 500)));
     } catch {}
   },
 
   getTopics(): Topic[] {
     try {
-      if (typeof localStorage === 'undefined') return DEFAULT_TOPICS;
-      const raw = localStorage.getItem(TOPICS_KEY);
+      const raw = getItem(TOPICS_KEY);
       if (!raw) return DEFAULT_TOPICS;
       const parsed: Topic[] = JSON.parse(raw);
       const deleted = new Set(this.getDeletedIds());
@@ -111,10 +144,11 @@ export const StorageService = {
 
   saveTopics(topics: Topic[]): void {
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(TOPICS_KEY, JSON.stringify(topics));
-      }
-      dbSetAll('topics', topics).catch(() => {});
+      this.setInitialized();
+      const deleted = new Set(this.getDeletedIds());
+      const filtered = topics.filter((t) => !deleted.has(t.id));
+      setItem(TOPICS_KEY, JSON.stringify(filtered));
+      dbSetAll('topics', filtered).catch(() => {});
     } catch (err) {
       console.error('Failed to save topics', err);
     }
@@ -122,8 +156,7 @@ export const StorageService = {
 
   getProblems(): Problem[] {
     try {
-      if (typeof localStorage === 'undefined') return DEFAULT_PROBLEMS;
-      const raw = localStorage.getItem(PROBLEMS_KEY);
+      const raw = getItem(PROBLEMS_KEY);
       if (!raw) return DEFAULT_PROBLEMS;
       const parsed: Problem[] = JSON.parse(raw);
       const deleted = new Set(this.getDeletedIds());
@@ -144,10 +177,11 @@ export const StorageService = {
 
   saveProblems(problems: Problem[]): void {
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(PROBLEMS_KEY, JSON.stringify(problems));
-      }
-      dbSetAll('problems', problems).catch(() => {});
+      this.setInitialized();
+      const deleted = new Set(this.getDeletedIds());
+      const filtered = problems.filter((p) => !deleted.has(p.id));
+      setItem(PROBLEMS_KEY, JSON.stringify(filtered));
+      dbSetAll('problems', filtered).catch(() => {});
     } catch (err) {
       console.error('Failed to save problems', err);
     }
@@ -155,8 +189,7 @@ export const StorageService = {
 
   getDailyTargets(): DailyTargetsConfig {
     try {
-      if (typeof localStorage === 'undefined') return DEFAULT_DAILY_TARGETS;
-      const raw = localStorage.getItem(TARGETS_KEY);
+      const raw = getItem(TARGETS_KEY);
       if (!raw) return DEFAULT_DAILY_TARGETS;
       return { ...DEFAULT_DAILY_TARGETS, ...JSON.parse(raw) };
     } catch {
@@ -166,9 +199,8 @@ export const StorageService = {
 
   saveDailyTargets(targets: DailyTargetsConfig): void {
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(TARGETS_KEY, JSON.stringify(targets));
-      }
+      this.setInitialized();
+      setItem(TARGETS_KEY, JSON.stringify(targets));
       dbSetSingleton('dailyTargets', targets, 'config').catch(() => {});
     } catch (err) {
       console.error('Failed to save daily targets', err);
@@ -177,8 +209,7 @@ export const StorageService = {
 
   getStudySessions(): StudySession[] {
     try {
-      if (typeof localStorage === 'undefined') return DEFAULT_SESSIONS;
-      const raw = localStorage.getItem(SESSIONS_KEY);
+      const raw = getItem(SESSIONS_KEY);
       if (!raw) return DEFAULT_SESSIONS;
       const parsed: StudySession[] = JSON.parse(raw);
       const deleted = new Set(this.getDeletedIds());
@@ -190,10 +221,11 @@ export const StorageService = {
 
   saveStudySessions(sessions: StudySession[]): void {
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
-      }
-      dbSetAll('studySessions', sessions).catch(() => {});
+      this.setInitialized();
+      const deleted = new Set(this.getDeletedIds());
+      const filtered = sessions.filter((s) => !deleted.has(s.id));
+      setItem(SESSIONS_KEY, JSON.stringify(filtered));
+      dbSetAll('studySessions', filtered).catch(() => {});
     } catch (err) {
       console.error('Failed to save study sessions', err);
     }
@@ -201,8 +233,7 @@ export const StorageService = {
 
   getMockTests(): MockTest[] {
     try {
-      if (typeof localStorage === 'undefined') return DEFAULT_MOCK_TESTS;
-      const raw = localStorage.getItem(MOCK_TESTS_KEY);
+      const raw = getItem(MOCK_TESTS_KEY);
       if (!raw) return DEFAULT_MOCK_TESTS;
       const parsed: MockTest[] = JSON.parse(raw);
       const deleted = new Set(this.getDeletedIds());
@@ -214,10 +245,11 @@ export const StorageService = {
 
   saveMockTests(tests: MockTest[]): void {
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(MOCK_TESTS_KEY, JSON.stringify(tests));
-      }
-      dbSetAll('mockTests', tests).catch(() => {});
+      this.setInitialized();
+      const deleted = new Set(this.getDeletedIds());
+      const filtered = tests.filter((m) => !deleted.has(m.id));
+      setItem(MOCK_TESTS_KEY, JSON.stringify(filtered));
+      dbSetAll('mockTests', filtered).catch(() => {});
     } catch (err) {
       console.error('Failed to save mock tests', err);
     }
@@ -225,8 +257,7 @@ export const StorageService = {
 
   getSettings(): UserSettings {
     try {
-      if (typeof localStorage === 'undefined') return DEFAULT_SETTINGS;
-      const raw = localStorage.getItem(SETTINGS_KEY);
+      const raw = getItem(SETTINGS_KEY);
       if (!raw) return DEFAULT_SETTINGS;
       return JSON.parse(raw);
     } catch {
@@ -236,9 +267,7 @@ export const StorageService = {
 
   saveSettings(settings: UserSettings): void {
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-      }
+      setItem(SETTINGS_KEY, JSON.stringify(settings));
       dbSetSingleton('settings', settings).catch(() => {});
     } catch (err) {
       console.error('Failed to save settings', err);
@@ -278,7 +307,7 @@ export const StorageService = {
       const mockTests = (idbMockTests.length > 0 ? idbMockTests : this.getMockTests()).filter((m) => !deleted.has(m.id));
       const settings = idbSettings || this.getSettings();
 
-      // Mirror into localStorage
+      // Mirror into localStorage / memory
       this.saveTopics(topics);
       this.saveProblems(problems);
       this.saveStudySessions(studySessions);
@@ -300,15 +329,14 @@ export const StorageService = {
   },
 
   clearAll(): void {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(TOPICS_KEY);
-      localStorage.removeItem(PROBLEMS_KEY);
-      localStorage.removeItem(SETTINGS_KEY);
-      localStorage.removeItem(TARGETS_KEY);
-      localStorage.removeItem(SESSIONS_KEY);
-      localStorage.removeItem(MOCK_TESTS_KEY);
-      localStorage.removeItem(DELETED_IDS_KEY);
-    }
+    removeItem(TOPICS_KEY);
+    removeItem(PROBLEMS_KEY);
+    removeItem(SETTINGS_KEY);
+    removeItem(TARGETS_KEY);
+    removeItem(SESSIONS_KEY);
+    removeItem(MOCK_TESTS_KEY);
+    removeItem(DELETED_IDS_KEY);
+    removeItem(INITIALIZED_KEY);
     dbSetAll('topics', []).catch(() => {});
     dbSetAll('problems', []).catch(() => {});
     dbSetAll('studySessions', []).catch(() => {});
