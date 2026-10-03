@@ -255,14 +255,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 1. Instant Cross-Tab Broadcast (0ms)
     broadcastLocalChange(captureCurrentSyncPayload());
 
-    // 2. Debounced Cloud Push (350ms)
+    // 2. Debounced Cloud Push (400ms)
     if (syncDebounceRef.current) {
       clearTimeout(syncDebounceRef.current);
     }
     syncDebounceRef.current = setTimeout(() => {
       triggerCloudSync();
-    }, 350);
+    }, 400);
   }, [triggerCloudSync]);
+
 
   const updateSyncConfig = useCallback((updates: Partial<DeviceSyncConfig>) => {
     setSyncConfig((prev) => {
@@ -364,10 +365,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [triggerCloudSync]);
 
-  // Fast background sync interval (every 3.5s when active tab is online)
+  // Background sync interval (every 20s when active tab is online)
   useEffect(() => {
     if (!syncConfig.isSyncEnabled) return;
-    const intervalTime = Math.max(3, syncConfig.autoSyncIntervalSeconds || 4) * 1000;
+    const intervalTime = Math.max(15, syncConfig.autoSyncIntervalSeconds || 20) * 1000;
     const interval = setInterval(() => {
       if (typeof navigator !== 'undefined' && navigator.onLine && document.visibilityState === 'visible') {
         triggerCloudSync();
@@ -376,6 +377,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => clearInterval(interval);
   }, [syncConfig.isSyncEnabled, syncConfig.autoSyncIntervalSeconds, triggerCloudSync]);
+
 
 
   // Target update

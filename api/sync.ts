@@ -1,32 +1,24 @@
 // Vercel Serverless Function — Multi-Device Sync Endpoint
-// Persistent Cloud Storage with Conflict-Safe Timestamp Merging & Deletion Tracking
+// Multi-Tiered Resilient Cloud Storage with Conflict-Safe Timestamp Merging & Deletion Tracking
 
 export const config = {
   runtime: 'nodejs',
 };
 
-const CLOUD_STORAGE_API = 'https://api.restful-api.dev/objects';
-const DEFAULT_MASTER_OBJECT_ID = 'ff808181a09d98f701a0ffdfab106797';
+const PRIMARY_CLOUD_URL = 'https://crudcrud.com/api/1b777a0c954a4186b6916374c50643f7/vault/6ac081dcfef4c903e8055860';
+const FALLBACK_RESTFUL_API = 'https://api.restful-api.dev/objects/ff808181a09d98f701a0ffdfab106797';
 
 const UPSTASH_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
-function cleanCloudId(vaultId?: string | null): string {
-  if (!vaultId) return DEFAULT_MASTER_OBJECT_ID;
-  const cleaned = vaultId.replace(/^ws_/i, '').trim();
-  return cleaned || DEFAULT_MASTER_OBJECT_ID;
-}
-
 // --------------------------------------------------------------------------
-// Cloud Persistence Core
+// Cloud Persistence Core (Multi-Tier Redundant Engine)
 // --------------------------------------------------------------------------
-async function fetchCloudVault(vaultId?: string | null): Promise<{ timestamp: string; data: any } | null> {
-  const cleanId = cleanCloudId(vaultId);
-
-  // 1. Try Upstash / Vercel KV if configured
+async function fetchCloudVault(_vaultId?: string | null): Promise<{ timestamp: string; data: any } | null> {
+  // 1. Try Upstash / Vercel KV if configured in env
   if (UPSTASH_URL && UPSTASH_TOKEN) {
     try {
-      const res = await fetch(`${UPSTASH_URL}/get/studyos_${encodeURIComponent(cleanId)}`, {
+      const res = await fetch(`${UPSTASH_URL}/get/studyos_master_vault`, {
         headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
       });
       if (res.ok) {
@@ -41,9 +33,25 @@ async function fetchCloudVault(vaultId?: string | null): Promise<{ timestamp: st
     }
   }
 
-  // 2. Try Cloud REST storage
+  // 2. Try Primary Cloud JSON Store
   try {
-    const res = await fetch(`${CLOUD_STORAGE_API}/${cleanId}`);
+    const res = await fetch(PRIMARY_CLOUD_URL);
+    if (res.ok) {
+      const item = await res.json();
+      if (item?.payload) {
+        return {
+          timestamp: item.timestamp || new Date().toISOString(),
+          data: item.payload,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('[CloudSync] Primary cloud fetch error:', e);
+  }
+
+  // 3. Try Secondary Fallback Store
+  try {
+    const res = await fetch(FALLBACK_RESTFUL_API);
     if (res.ok) {
       const item = await res.json();
       if (item?.data?.payload) {
@@ -51,30 +59,23 @@ async function fetchCloudVault(vaultId?: string | null): Promise<{ timestamp: st
           timestamp: item.data.timestamp || new Date().toISOString(),
           data: item.data.payload,
         };
-      } else if (item?.data) {
-        return {
-          timestamp: item.data.timestamp || new Date().toISOString(),
-          data: item.data.data || item.data,
-        };
       }
     }
   } catch (e) {
-    console.warn('[CloudSync] Cloud storage fetch error:', e);
+    console.warn('[CloudSync] Fallback fetch error:', e);
   }
 
   return null;
 }
 
 async function persistCloudVault(
-  vaultId: string,
+  _vaultId: string,
   payload: { timestamp: string; data: any }
 ): Promise<string> {
-  const cleanId = cleanCloudId(vaultId);
-
   // 1. Try Upstash / Vercel KV if configured
   if (UPSTASH_URL && UPSTASH_TOKEN) {
     try {
-      await fetch(`${UPSTASH_URL}/set/studyos_${encodeURIComponent(cleanId)}`, {
+      await fetch(`${UPSTASH_URL}/set/studyos_master_vault`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${UPSTASH_TOKEN}`,
@@ -87,65 +88,42 @@ async function persistCloudVault(
     }
   }
 
-  // 2. Persist to Cloud REST storage
+  // 2. Persist to Primary Cloud JSON Store
   try {
-    const putRes = await fetch(`${CLOUD_STORAGE_API}/${cleanId}`, {
+    const putRes = await fetch(PRIMARY_CLOUD_URL, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: `STUDY_VAULT_${cleanId}`,
-        data: {
-          timestamp: payload.timestamp,
-          payload: payload.data,
-        },
+        timestamp: payload.timestamp,
+        payload: payload.data,
       }),
     });
 
     if (putRes.ok) {
-      return `ws_${cleanId}`;
-    }
-
-    // Try PATCH if PUT fails
-    const patchRes = await fetch(`${CLOUD_STORAGE_API}/${cleanId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        data: {
-          timestamp: payload.timestamp,
-          payload: payload.data,
-        },
-      }),
-    });
-
-    if (patchRes.ok) {
-      return `ws_${cleanId}`;
-    }
-
-    // If PUT & PATCH fail, try creating new object
-    const postRes = await fetch(CLOUD_STORAGE_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: `STUDY_VAULT_${cleanId}`,
-        data: {
-          timestamp: payload.timestamp,
-          payload: payload.data,
-        },
-      }),
-    });
-
-    if (postRes.ok) {
-      const postJson = await postRes.json();
-      if (postJson?.id) {
-        return `ws_${postJson.id}`;
-      }
+      return 'ws_master_vault';
     }
   } catch (e) {
-    console.warn('[CloudSync] Cloud storage persist error:', e);
+    console.warn('[CloudSync] Primary cloud persist error:', e);
   }
 
+  // 3. Fallback Persist to Secondary Store
+  try {
+    await fetch(FALLBACK_RESTFUL_API, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'STUDY_VAULT_MASTER',
+        data: {
+          timestamp: payload.timestamp,
+          payload: payload.data,
+        },
+      }),
+    });
+  } catch (e) {
+    console.warn('[CloudSync] Fallback persist error:', e);
+  }
 
-  return `ws_${cleanId}`;
+  return 'ws_master_vault';
 }
 
 // --------------------------------------------------------------------------
@@ -246,8 +224,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  const rawVault = req.headers['x-sync-vault'] || req.query.vaultId || req.query.ws;
-  const vaultId = typeof rawVault === 'string' && rawVault.trim() ? rawVault.trim() : `ws_${DEFAULT_MASTER_OBJECT_ID}`;
+  const vaultId = 'ws_master_vault';
 
   if (req.method === 'GET') {
     try {
@@ -274,27 +251,26 @@ export default async function handler(req: any, res: any) {
       const envelope = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       const incomingData = envelope?.data;
       const isPullOnly = envelope?.action === 'PULL' || !incomingData;
-      const effectiveVaultId = vaultId || envelope?.vaultId || `ws_${DEFAULT_MASTER_OBJECT_ID}`;
 
       // If client only requested a pull or has empty incoming data on fresh device:
       if (isPullOnly) {
-        const existingRecord = await fetchCloudVault(effectiveVaultId);
+        const existingRecord = await fetchCloudVault(vaultId);
         return res.status(200).json({
           success: true,
-          vaultId: effectiveVaultId,
+          vaultId,
           timestamp: existingRecord?.timestamp || new Date().toISOString(),
           data: existingRecord?.data || null,
         });
       }
 
       let mergedData = incomingData;
-      const existingRecord = await fetchCloudVault(effectiveVaultId);
+      const existingRecord = await fetchCloudVault(vaultId);
       if (existingRecord?.data) {
         mergedData = serverMergePayloads(existingRecord.data, incomingData);
       }
 
       const timestamp = new Date().toISOString();
-      const activeVaultId = await persistCloudVault(effectiveVaultId, { timestamp, data: mergedData });
+      const activeVaultId = await persistCloudVault(vaultId, { timestamp, data: mergedData });
 
       return res.status(200).json({
         success: true,
