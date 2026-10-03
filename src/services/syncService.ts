@@ -115,7 +115,7 @@ export function getDeviceSyncConfig(): DeviceSyncConfig {
           parsed.vaultId = urlWorkspace;
           parsed.isSyncEnabled = true;
           saveDeviceSyncConfig(parsed);
-        } else if (!parsed.vaultId || !parsed.vaultId.startsWith('ws_')) {
+        } else if (!urlWorkspace && parsed.vaultId !== DEFAULT_PERSONAL_WORKSPACE_ID) {
           parsed.vaultId = DEFAULT_PERSONAL_WORKSPACE_ID;
           parsed.isSyncEnabled = true;
           saveDeviceSyncConfig(parsed);
@@ -123,11 +123,15 @@ export function getDeviceSyncConfig(): DeviceSyncConfig {
         return parsed;
       }
     } else if (memorySyncConfig) {
+      if (!urlWorkspace && memorySyncConfig.vaultId !== DEFAULT_PERSONAL_WORKSPACE_ID) {
+        memorySyncConfig.vaultId = DEFAULT_PERSONAL_WORKSPACE_ID;
+      }
       return memorySyncConfig;
     }
   } catch (err) {
     console.warn('Failed to read sync config from localStorage', err);
   }
+
 
   const initialConfig: DeviceSyncConfig = {
     vaultId: urlWorkspace || DEFAULT_PERSONAL_WORKSPACE_ID,

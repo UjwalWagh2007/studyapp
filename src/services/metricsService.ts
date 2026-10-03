@@ -27,6 +27,7 @@ export function computeTodayMetrics(
 
   // 1. Problems solved today (solvedAt matches today's date)
   const problemsSolvedToday = problems.filter((p) => {
+    if (!p.solvedAt) return false;
     return normalizeDate(p.solvedAt) === todayStr;
   }).length;
 
@@ -34,7 +35,7 @@ export function computeTodayMetrics(
   let revisionsDoneToday = 0;
   problems.forEach((p) => {
     (p.reviewHistory || []).forEach((log) => {
-      if (normalizeDate(log.reviewedAt) === todayStr) {
+      if (log.reviewedAt && normalizeDate(log.reviewedAt) === todayStr) {
         revisionsDoneToday++;
       }
     });
@@ -110,21 +111,26 @@ export function computeConsistencyHeatmap(
   // Pre-index problems solved by date
   const problemsByDate = new Map<string, number>();
   problems.forEach((p) => {
-    const d = normalizeDate(p.solvedAt);
-    problemsByDate.set(d, (problemsByDate.get(d) || 0) + 1);
+    if (p.solvedAt) {
+      const d = normalizeDate(p.solvedAt);
+      problemsByDate.set(d, (problemsByDate.get(d) || 0) + 1);
+    }
   });
 
   // Pre-index revisions done by date
   const revisionsByDate = new Map<string, number>();
   problems.forEach((p) => {
     (p.reviewHistory || []).forEach((log) => {
-      const d = normalizeDate(log.reviewedAt);
-      revisionsByDate.set(d, (revisionsByDate.get(d) || 0) + 1);
+      if (log.reviewedAt) {
+        const d = normalizeDate(log.reviewedAt);
+        revisionsByDate.set(d, (revisionsByDate.get(d) || 0) + 1);
+      }
     });
   });
 
   // Pre-index focus study seconds by date
   const studySecondsByDate = new Map<string, number>();
+
   studySessions.forEach((s) => {
     const d = s.dateStr;
     const sec = s.focusSeconds || (s as any).durationSeconds || 0;
