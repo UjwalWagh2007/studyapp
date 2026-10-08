@@ -158,21 +158,21 @@ describe('sessionService', () => {
 
     expect(groups.length).toBe(3);
 
-    // Group 1: 06 OCTOBER 2026
-    expect(groups[0].displayDate).toBe('06 OCTOBER 2026');
-    expect(groups[0].sessions.length).toBe(2);
-    expect(groups[0].sessions[0].name).toBe('DSA Arrays'); // 08:15 AM
-    expect(groups[0].sessions[1].name).toBe('Web Development'); // 04:30 PM (16:30)
+    // Group 1: 08 OCTOBER 2026 (Most recent date first)
+    expect(groups[0].displayDate).toBe('08 OCTOBER 2026');
+    expect(groups[0].sessions.length).toBe(1);
+    expect(groups[0].sessions[0].name).toBe('Stack & Queue'); // 06:15 PM (18:15)
 
     // Group 2: 07 OCTOBER 2026
     expect(groups[1].displayDate).toBe('07 OCTOBER 2026');
     expect(groups[1].sessions.length).toBe(2);
-    expect(groups[1].sessions[0].name).toBe('Binary Search'); // 09:20 AM
-    expect(groups[1].sessions[1].name).toBe('Revision'); // 10:45 PM (22:45)
+    expect(groups[1].sessions[0].name).toBe('Revision'); // 10:45 PM (22:45, newest start time first)
+    expect(groups[1].sessions[1].name).toBe('Binary Search'); // 09:20 AM
 
-    // Group 3: 08 OCTOBER 2026
-    expect(groups[2].displayDate).toBe('08 OCTOBER 2026');
-    expect(groups[2].sessions.length).toBe(1);
-    expect(groups[2].sessions[0].name).toBe('Stack & Queue'); // 06:15 PM (18:15)
+    // Group 3: 06 OCTOBER 2026 (Oldest date last)
+    expect(groups[2].displayDate).toBe('06 OCTOBER 2026');
+    expect(groups[2].sessions.length).toBe(2);
+    expect(groups[2].sessions[0].name).toBe('Web Development'); // 04:30 PM (16:30, newest start time first)
+    expect(groups[2].sessions[1].name).toBe('DSA Arrays'); // 08:15 AM
   });
 });

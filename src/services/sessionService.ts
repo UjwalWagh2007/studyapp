@@ -200,12 +200,12 @@ export function groupSessionsByDate(sessions: StudySession[]): SessionDateGroup[
   const groups: SessionDateGroup[] = [];
 
   groupsMap.forEach((sList, dateKey) => {
-    // Sort sessions chronologically by startTime (earliest start first -> latest start last)
+    // Sort sessions by startTime descending (newest / most recent start time first -> oldest last)
     const sortedSessions = [...sList].sort((a, b) => {
       const timeA = new Date(a.startTime || a.createdAt || 0).getTime() || 0;
       const timeB = new Date(b.startTime || b.createdAt || 0).getTime() || 0;
-      if (timeA !== timeB) return timeA - timeB;
-      return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     });
 
     const d = new Date(dateKey === 'Unknown Date' ? 0 : dateKey);
@@ -219,11 +219,11 @@ export function groupSessionsByDate(sessions: StudySession[]): SessionDateGroup[
     });
   });
 
-  // Sort dates chronologically (earliest date first -> latest date last)
+  // Sort dates descending (newest / most recent date first -> oldest date last)
   groups.sort((a, b) => {
     if (a.dateKey === 'Unknown Date') return 1;
     if (b.dateKey === 'Unknown Date') return -1;
-    return a.dateKey.localeCompare(b.dateKey);
+    return b.dateKey.localeCompare(a.dateKey);
   });
 
   return groups;

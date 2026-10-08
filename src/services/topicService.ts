@@ -67,12 +67,12 @@ export function groupTopicProblemsByDate(problems: Problem[]): ProblemDateGroup[
   const groups: ProblemDateGroup[] = [];
 
   groupsMap.forEach((pList, dateKey) => {
-    // Sort problems chronologically by actual solved time (earliest time first -> latest time last)
+    // Sort problems by actual solved time descending (newest / most recent first -> oldest last)
     const sortedProblems = [...pList].sort((a, b) => {
       const timeA = new Date(a.solvedAt).getTime() || 0;
       const timeB = new Date(b.solvedAt).getTime() || 0;
-      if (timeA !== timeB) return timeA - timeB;
-      return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     });
 
     const d = new Date(dateKey === 'Unknown Date' ? 0 : dateKey);
@@ -86,11 +86,11 @@ export function groupTopicProblemsByDate(problems: Problem[]): ProblemDateGroup[
     });
   });
 
-  // Sort dates chronologically (earliest date first -> latest date last)
+  // Sort dates descending (newest / most recent date first -> oldest date last)
   groups.sort((a, b) => {
     if (a.dateKey === 'Unknown Date') return 1;
     if (b.dateKey === 'Unknown Date') return -1;
-    return a.dateKey.localeCompare(b.dateKey);
+    return b.dateKey.localeCompare(a.dateKey);
   });
 
   return groups;
