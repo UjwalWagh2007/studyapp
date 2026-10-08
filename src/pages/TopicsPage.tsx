@@ -6,6 +6,7 @@ import {
   Trash2,
   ExternalLink,
   Calendar,
+  Clock,
   Layers,
   FolderPlus,
   FileCode,
@@ -21,6 +22,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { useAppStore } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import { addDays, normalizeDate } from '../services/spacedRepetition';
+import { groupTopicProblemsByDate } from '../services/topicService';
 import type { Topic, Problem, Difficulty } from '../types';
 
 export const TopicsPage: React.FC = () => {
@@ -72,6 +74,11 @@ export const TopicsPage: React.FC = () => {
   // Effective selected topic (defaults to the first topic if available, or currently selected)
   const currentTopic = sortedTopics.find((t) => t.id === selectedTopicId) || (sortedTopics.length > 0 ? sortedTopics[0] : null);
   const currentTopicProblems = currentTopic ? problems.filter((p) => p.topicId === currentTopic.id) : [];
+
+  // Group and sort problems chronologically by solved date, and within each date by solved time
+  const groupedProblemsByDate = useMemo(() => {
+    return groupTopicProblemsByDate(currentTopicProblems);
+  }, [currentTopicProblems]);
 
   // ------------------------------------------------------------------------
   // TOPIC HANDLERS
@@ -391,99 +398,84 @@ export const TopicsPage: React.FC = () => {
                     onAction={handleOpenAddProblem}
                   />
                 ) : (
-                  <div className="table-container">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>Problem</th>
-                          <th>Difficulty</th>
-                          <th>Pattern</th>
-                          <th>Date & Time Solved</th>
-                          <th>Next Revision</th>
-                          <th style={{ textAlign: 'right' }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {currentTopicProblems.map((problem) => {
-                          const solvedDateObj = new Date(problem.solvedAt);
-                          const formattedSolvedDate = !isNaN(solvedDateObj.getTime())
-                            ? solvedDateObj.toLocaleDateString()
-                            : problem.solvedAt;
-                          const formattedSolvedTime = !isNaN(solvedDateObj.getTime())
-                            ? solvedDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                            : '';
+                  <div className="topic-timeline-container">
+                    {groupedProblemsByDate.map((group) => (
+                      <div key={group.dateKey} className="topic-date-group">
+                        {/* Date Group Heading */}
+                        <div className="topic-date-header">
+                          <div className="topic-date-title-wrap">
+                            <Calendar size={14} className="topic-date-icon" />
+                            <span className="topic-date-title">{group.displayDate}</span>
+                          </div>
+                          <span className="topic-date-count">
+                            {group.problems.length} {group.problems.length === 1 ? 'problem' : 'problems'}
+                          </span>
+                        </div>
 
-                          return (
-                            <tr key={problem.id}>
-                              <td>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '13.5px' }}>
-                                    {problem.title}
-                                  </span>
-                                  {problem.link && (
-                                    <a
-                                      href={problem.link}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{ color: 'var(--color-primary)', display: 'inline-flex' }}
-                                      title="Open problem link"
-                                    >
-                                      <ExternalLink size={13} />
-                                    </a>
-                                  )}
-                                </div>
-                              </td>
+                        {/* Problems Solved on this Date */}
+                        <div className="topic-date-problems-list">
+                          {group.problems.map((problem) => {
+                            const solvedDateObj = new Date(problem.solvedAt);
+                            const formattedTime = !isNaN(solvedDateObj.getTime())
+                              ? solvedDateObj.toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : '';
 
-                              <td>
-                                <Badge variant={getDifficultyVariant(problem.difficulty)}>
-                                  {problem.difficulty}
-                                </Badge>
-                              </td>
-
-                              <td>
-                                {problem.pattern ? (
-                                  <span
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 5,
-                                      fontSize: '12px',
-                                      fontWeight: 500,
-                                      color: 'var(--text-secondary)',
-                                    }}
+                            return (
+                              <div key={problem.id} className="topic-problem-row">
+                                <div className="topic-problem-left">
+                                  {/* Solved Time Badge */}
+                                  <div
+                                    className="topic-problem-time"
+                                    title={`Solved at ${formattedTime || problem.solvedAt}`}
                                   >
-                                    <Layers size={13} color="var(--color-primary)" />
-                                    {problem.pattern}
-                                  </span>
-                                ) : (
-                                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
-                                )}
-                              </td>
+                                    <Clock size={12} />
+                                    <span>{formattedTime || '--:--'}</span>
+                                  </div>
 
-                              <td>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                  <span style={{ fontSize: '12.5px', color: 'var(--text-primary)' }}>
-                                    {formattedSolvedDate}
-                                  </span>
-                                  {formattedSolvedTime && (
-                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                      {formattedSolvedTime}
-                                    </span>
-                                  )}
+                                  {/* Problem Details */}
+                                  <div className="topic-problem-main">
+                                    <div className="topic-problem-title-row">
+                                      <span className="topic-problem-title">{problem.title}</span>
+                                      {problem.link && (
+                                        <a
+                                          href={problem.link}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="topic-problem-link"
+                                          title="Open problem link"
+                                        >
+                                          <ExternalLink size={13} />
+                                        </a>
+                                      )}
+                                    </div>
+
+                                    <div className="topic-problem-meta-row">
+                                      <Badge variant={getDifficultyVariant(problem.difficulty)} size="sm">
+                                        {problem.difficulty}
+                                      </Badge>
+
+                                      {problem.pattern && (
+                                        <span className="topic-problem-pattern" title="Algorithmic Pattern">
+                                          <Layers size={12} color="var(--color-primary)" />
+                                          <span>{problem.pattern}</span>
+                                        </span>
+                                      )}
+
+                                      {problem.nextReviewAt && (
+                                        <span className="topic-problem-review" title="Scheduled Revision Date">
+                                          <Calendar size={12} />
+                                          <span>Next: {problem.nextReviewAt}</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
-                              </td>
 
-                              <td>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <Calendar size={13} color="var(--text-muted)" />
-                                  <span style={{ fontSize: '12.5px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                                    {problem.nextReviewAt || 'Scheduled'}
-                                  </span>
-                                </div>
-                              </td>
-
-                              <td style={{ textAlign: 'right' }}>
-                                <div style={{ display: 'inline-flex', gap: 4 }}>
+                                {/* Actions */}
+                                <div className="topic-problem-actions">
                                   <IconButton
                                     icon={<Edit2 size={14} />}
                                     label="Edit problem"
@@ -497,12 +489,12 @@ export const TopicsPage: React.FC = () => {
                                     onClick={() => setDeletingProblem(problem)}
                                   />
                                 </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </>
