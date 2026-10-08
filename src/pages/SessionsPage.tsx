@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock,
   Play,
@@ -19,7 +19,7 @@ import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import { useAppStore } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
-import { getLiveSessionTimes } from '../services/sessionService';
+import { getLiveSessionTimes, groupSessionsByDate } from '../services/sessionService';
 import type { StudySession } from '../types';
 
 export const SessionsPage: React.FC = () => {
@@ -120,10 +120,9 @@ export const SessionsPage: React.FC = () => {
     ? activeLiveTimes.focusSeconds + activeLiveTimes.breakSeconds
     : 0;
 
-  // Separate today's sessions and past sessions
+  // Separate today's sessions and past sessions for summary stats
   const todayStr = new Date().toISOString().split('T')[0];
   const todaySessions = studySessions.filter((s) => s.dateStr === todayStr);
-  const pastSessions = studySessions.filter((s) => s.dateStr !== todayStr);
 
   const todayTotalFocus = todaySessions.reduce((sum, s) => {
     const live = getLiveSessionTimes(s);
@@ -134,6 +133,11 @@ export const SessionsPage: React.FC = () => {
     const live = getLiveSessionTimes(s);
     return sum + live.breakSeconds;
   }, 0);
+
+  // Group and sort all sessions chronologically by date and within each date by start time
+  const groupedSessions = useMemo(() => {
+    return groupSessionsByDate(studySessions);
+  }, [studySessions]);
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 960, margin: '0 auto', width: '100%' }}>
@@ -390,15 +394,15 @@ export const SessionsPage: React.FC = () => {
         </div>
       )}
 
-      {/* TODAY'S SESSIONS SUMMARY & LIST */}
+      {/* SESSION HISTORY (CHRONOLOGICAL DATE-WISE TIMELINE) */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div>
             <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-              Today's Sessions
+              Session History
             </h3>
             <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-              Total Focus: <strong style={{ color: 'var(--text-primary)' }}>{formatDurationReadable(todayTotalFocus)}</strong>
+              Total Focus Today: <strong style={{ color: 'var(--text-primary)' }}>{formatDurationReadable(todayTotalFocus)}</strong>
               {todayTotalBreak > 0 && ` • Break: ${formatDurationReadable(todayTotalBreak)}`}
             </span>
           </div>
@@ -412,7 +416,7 @@ export const SessionsPage: React.FC = () => {
           </Button>
         </div>
 
-        {todaySessions.length === 0 ? (
+        {studySessions.length === 0 ? (
           <div
             style={{
               background: 'var(--bg-card)',
@@ -424,202 +428,135 @@ export const SessionsPage: React.FC = () => {
               fontSize: '13.5px',
             }}
           >
-            No study sessions logged today yet. Start a session above to track your focus hours.
+            No study sessions logged yet. Start a session above to track your focus hours.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {todaySessions.map((session) => {
-              const live = getLiveSessionTimes(session);
-              const isActive = activeSession?.id === session.id;
-
-              return (
-                <div
-                  key={session.id}
-                  style={{
-                    background: 'var(--bg-card)',
-                    border: isActive
-                      ? '1.5px solid var(--color-primary)'
-                      : '1px solid var(--border-color)',
-                    borderRadius: 'var(--radius-lg)',
-                    padding: '16px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: 12,
-                    boxShadow: 'var(--shadow-sm)',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: session.status === 'COMPLETED'
-                          ? 'rgba(34, 197, 94, 0.12)'
-                          : session.status === 'PAUSED'
-                          ? 'rgba(245, 158, 11, 0.12)'
-                          : 'rgba(99, 102, 241, 0.12)',
-                        color: session.status === 'COMPLETED'
-                          ? 'var(--color-success)'
-                          : session.status === 'PAUSED'
-                          ? '#f59e0b'
-                          : 'var(--color-primary)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      {session.status === 'COMPLETED' ? (
-                        <CheckCircle2 size={20} />
-                      ) : session.status === 'PAUSED' ? (
-                        <Pause size={20} />
-                      ) : (
-                        <Flame size={20} />
-                      )}
-                    </div>
-
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {session.name}
-                        </span>
-                        <Badge
-                          variant={session.status === 'COMPLETED' ? 'success' : session.status === 'PAUSED' ? 'warning' : 'primary'}
-                          size="sm"
-                        >
-                          {session.status === 'COMPLETED' ? 'Completed' : session.status === 'PAUSED' ? 'Paused' : 'Running'}
-                        </Badge>
-                      </div>
-
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: 4 }}>
-                        Started: {formatSessionTime(session.startTime)}
-                        {session.endTime && ` • Ended: ${formatSessionTime(session.endTime)}`}
-                      </div>
-                    </div>
+          <div className="session-timeline-container">
+            {groupedSessions.map((group) => (
+              <div key={group.dateKey} className="session-date-group">
+                {/* Date Group Heading */}
+                <div className="session-date-header">
+                  <div className="session-date-title-wrap">
+                    <Calendar size={14} className="session-date-icon" />
+                    <span className="session-date-title">{group.displayDate}</span>
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                        {formatDurationReadable(live.focusSeconds)}
-                      </div>
-                      {live.breakSeconds > 0 && (
-                        <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                          Break: {formatDurationReadable(live.breakSeconds)}
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      {session.status === 'PAUSED' && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          iconLeft={<Play size={13} />}
-                          onClick={() => resumeSessionById(session.id)}
-                        >
-                          Resume
-                        </Button>
-                      )}
-
-                      <IconButton
-                        icon={<Trash2 size={16} />}
-                        label="Delete session"
-                        size="sm"
-                        onClick={() => setSessionToDelete(session)}
-                      />
-                    </div>
-                  </div>
+                  <span className="session-date-count">
+                    {group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}
+                  </span>
                 </div>
-              );
-            })}
+
+                {/* Sessions Solved on this Date */}
+                <div className="session-date-list">
+                  {group.sessions.map((session) => {
+                    const live = getLiveSessionTimes(session);
+                    const isActive = activeSession?.id === session.id;
+                    const startTimeObj = new Date(session.startTime);
+                    const formattedStartTime = !isNaN(startTimeObj.getTime())
+                      ? startTimeObj.toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : '';
+
+                    return (
+                      <div
+                        key={session.id}
+                        className={`session-history-card ${isActive ? 'session-history-card-active' : ''}`}
+                      >
+                        <div className="session-history-left">
+                          {/* Start Time Badge */}
+                          <div
+                            className="session-history-time"
+                            title={`Started at ${formattedStartTime || session.startTime}`}
+                          >
+                            <Clock size={12} />
+                            <span>{formattedStartTime || '--:--'}</span>
+                          </div>
+
+                          {/* Status Icon Box */}
+                          <div
+                            className={`session-status-icon-box session-status-${session.status.toLowerCase()}`}
+                          >
+                            {session.status === 'COMPLETED' ? (
+                              <CheckCircle2 size={18} />
+                            ) : session.status === 'PAUSED' ? (
+                              <Pause size={18} />
+                            ) : (
+                              <Flame size={18} />
+                            )}
+                          </div>
+
+                          {/* Session Details */}
+                          <div className="session-history-main">
+                            <div className="session-history-title-row">
+                              <span className="session-history-name">{session.name}</span>
+                              <Badge
+                                variant={
+                                  session.status === 'COMPLETED'
+                                    ? 'success'
+                                    : session.status === 'PAUSED'
+                                    ? 'warning'
+                                    : 'primary'
+                                }
+                                size="sm"
+                              >
+                                {session.status === 'COMPLETED'
+                                  ? 'Completed'
+                                  : session.status === 'PAUSED'
+                                  ? 'Paused'
+                                  : 'Running'}
+                              </Badge>
+                            </div>
+
+                            <div className="session-history-meta">
+                              <span>Started: {formatSessionTime(session.startTime)}</span>
+                              {session.endTime && <span> • Ended: {formatSessionTime(session.endTime)}</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right: Durations & Actions */}
+                        <div className="session-history-right">
+                          <div className="session-history-durations">
+                            <div className="session-history-focus">
+                              {formatDurationReadable(live.focusSeconds)} focus
+                            </div>
+                            {live.breakSeconds > 0 && (
+                              <div className="session-history-break">
+                                Break: {formatDurationReadable(live.breakSeconds)}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="session-history-actions">
+                            {session.status === 'PAUSED' && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                iconLeft={<Play size={13} />}
+                                onClick={() => resumeSessionById(session.id)}
+                              >
+                                Resume
+                              </Button>
+                            )}
+
+                            <IconButton
+                              icon={<Trash2 size={15} />}
+                              label="Delete session"
+                              size="sm"
+                              onClick={() => setSessionToDelete(session)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
-
-      {/* PREVIOUS / HISTORICAL SESSIONS */}
-      {pastSessions.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 12 }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-            Previous Sessions
-          </h3>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {pastSessions.map((session) => {
-              const live = getLiveSessionTimes(session);
-              return (
-                <div
-                  key={session.id}
-                  style={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 'var(--radius-lg)',
-                    padding: '14px 18px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: 'var(--bg-subtle)',
-                        color: 'var(--text-secondary)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Calendar size={18} />
-                    </div>
-
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: '14.5px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {session.name}
-                        </span>
-                        <Badge variant="default" size="sm">
-                          {session.dateStr}
-                        </Badge>
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: 2 }}>
-                        {formatSessionTime(session.startTime)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {formatDurationReadable(live.focusSeconds)}
-                      </div>
-                      {live.breakSeconds > 0 && (
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          Break: {formatDurationReadable(live.breakSeconds)}
-                        </div>
-                      )}
-                    </div>
-
-                    <IconButton
-                      icon={<Trash2 size={15} />}
-                      label="Delete session"
-                      size="sm"
-                      onClick={() => setSessionToDelete(session)}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* CREATE NEW SESSION MODAL */}
       <Modal

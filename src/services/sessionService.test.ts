@@ -5,6 +5,8 @@ import {
   resumeStudySession,
   completeStudySession,
   getLiveSessionTimes,
+  formatSessionDateHeading,
+  groupSessionsByDate,
 } from './sessionService';
 
 describe('sessionService', () => {
@@ -94,5 +96,83 @@ describe('sessionService', () => {
     const live = getLiveSessionTimes(completed, t2);
     expect(live.focusSeconds).toBe(45 * 60);
     expect(live.breakSeconds).toBe(0);
+  });
+
+  it('formats session date headings correctly', () => {
+    expect(formatSessionDateHeading('2026-10-06')).toBe('06 OCTOBER 2026');
+    expect(formatSessionDateHeading('2026-10-07')).toBe('07 OCTOBER 2026');
+    expect(formatSessionDateHeading('2026-10-08')).toBe('08 OCTOBER 2026');
+    expect(formatSessionDateHeading('Unknown Date')).toBe('UNKNOWN DATE');
+  });
+
+  it('groups and sorts study sessions chronologically by date and within date by start time', () => {
+    const mockSessions: any[] = [
+      {
+        id: 's3',
+        name: 'Stack & Queue',
+        status: 'COMPLETED',
+        dateStr: '2026-10-08',
+        startTime: '2026-10-08T18:15:00.000Z',
+        focusSeconds: 92 * 60,
+        breakSeconds: 0,
+      },
+      {
+        id: 's1',
+        name: 'DSA Arrays',
+        status: 'COMPLETED',
+        dateStr: '2026-10-06',
+        startTime: '2026-10-06T08:15:00.000Z',
+        focusSeconds: 84 * 60,
+        breakSeconds: 0,
+      },
+      {
+        id: 's2',
+        name: 'Web Development',
+        status: 'COMPLETED',
+        dateStr: '2026-10-06',
+        startTime: '2026-10-06T16:30:00.000Z',
+        focusSeconds: 52 * 60,
+        breakSeconds: 0,
+      },
+      {
+        id: 's4',
+        name: 'Binary Search',
+        status: 'COMPLETED',
+        dateStr: '2026-10-07',
+        startTime: '2026-10-07T09:20:00.000Z',
+        focusSeconds: 70 * 60,
+        breakSeconds: 0,
+      },
+      {
+        id: 's5',
+        name: 'Revision',
+        status: 'COMPLETED',
+        dateStr: '2026-10-07',
+        startTime: '2026-10-07T22:45:00.000Z',
+        focusSeconds: 45 * 60,
+        breakSeconds: 0,
+      },
+    ];
+
+    const groups = groupSessionsByDate(mockSessions);
+
+    expect(groups.length).toBe(3);
+
+    // Group 1: 06 OCTOBER 2026
+    expect(groups[0].displayDate).toBe('06 OCTOBER 2026');
+    expect(groups[0].sessions.length).toBe(2);
+    expect(groups[0].sessions[0].name).toBe('DSA Arrays'); // 08:15 AM
+    expect(groups[0].sessions[1].name).toBe('Web Development'); // 04:30 PM (16:30)
+
+    // Group 2: 07 OCTOBER 2026
+    expect(groups[1].displayDate).toBe('07 OCTOBER 2026');
+    expect(groups[1].sessions.length).toBe(2);
+    expect(groups[1].sessions[0].name).toBe('Binary Search'); // 09:20 AM
+    expect(groups[1].sessions[1].name).toBe('Revision'); // 10:45 PM (22:45)
+
+    // Group 3: 08 OCTOBER 2026
+    expect(groups[2].displayDate).toBe('08 OCTOBER 2026');
+    expect(groups[2].sessions.length).toBe(1);
+    expect(groups[2].sessions[0].name).toBe('Stack & Queue'); // 06:15 PM (18:15)
   });
 });
